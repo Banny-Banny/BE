@@ -61,3 +61,8 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 
+# ===========================================
+# Spec-Kit (keep specs, ignore temp files)
+# ===========================================
+.spec-kit-temp/
+
