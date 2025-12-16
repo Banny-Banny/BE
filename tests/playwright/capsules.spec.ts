@@ -6,9 +6,9 @@ import jwt from 'jsonwebtoken';
 const DB_CONFIG = {
   host: process.env.DB_HOST ?? 'localhost',
   port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USERNAME ?? 'kimdongeun',
+  user: process.env.DB_USERNAME ?? '',
   password: process.env.DB_PASSWORD ?? '',
-  database: process.env.DB_DATABASE ?? 'banny_banny',
+  database: process.env.DB_DATABASE ?? '',
 };
 
 const JWT_SECRET =
