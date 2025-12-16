@@ -48,10 +48,10 @@ test.afterAll(async () => {
 
 // 프론트 연동 없는 환경을 위한 하드코딩 유저/토큰 생성기
 async function createUser(eggSlots = 3) {
-  const id = '00000000-0000-0000-0000-00000000e2e1';
-  const phone = '010-9999-8888';
-  // 동일 ID가 남아있을 경우 정리
-  await client.query('DELETE FROM users WHERE id = $1', [id]);
+  const id = crypto.randomUUID();
+  const phone = `010-${Math.floor(Math.random() * 9000 + 1000)}-${Math.floor(
+    Math.random() * 9000 + 1000,
+  )}`;
   await client.query(
     `
     INSERT INTO users (id, nickname, phone_number, provider, egg_slots)
@@ -67,6 +67,38 @@ async function createUser(eggSlots = 3) {
 
 async function cleanupUser(id: string) {
   await client.query('DELETE FROM users WHERE id = $1', [id]);
+}
+
+async function cleanupFriendships(a: string, b: string) {
+  await client.query(
+    'DELETE FROM friendships WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)',
+    [a, b],
+  );
+}
+
+async function connectFriends(a: string, b: string) {
+  await cleanupFriendships(a, b);
+  await client.query(
+    `INSERT INTO friendships (id, user_id, friend_id, status) VALUES ($1, $2, $3, 'CONNECTED')`,
+    [crypto.randomUUID(), a, b],
+  );
+  await client.query(
+    `INSERT INTO friendships (id, user_id, friend_id, status) VALUES ($1, $2, $3, 'CONNECTED')`,
+    [crypto.randomUUID(), b, a],
+  );
+}
+
+async function createCapsule(ownerId: string, productId: string | null, lat = 37.0, lng = 127.0) {
+  const capId = crypto.randomUUID();
+  await client.query(
+    `
+    INSERT INTO capsules (id, user_id, product_id, title, content, media_urls, media_types, open_at, is_locked, view_limit, view_count, latitude, longitude)
+    VALUES ($1, $2, $3, 'capsule', 'content', '{"https://cdn.example.com/1.jpg"}', '{"IMAGE"}',
+            NOW() + interval '1 day', true, 1, 0, $4, $5)
+    `,
+    [capId, ownerId, productId, lat, lng],
+  );
+  return capId;
 }
 
 test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
@@ -100,6 +132,85 @@ test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
   expect(rows[0].egg_slots).toBe(2);
 
   await cleanupUser(id);
+});
+
+test('캡슐 조회 200 (친구+위치 도달)', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  await connectFriends(owner.id, viewer.id);
+  const productId = await createProductEasterEgg(1);
+  const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
+
+  const res = await api.get(`/api/capsules/${capId}?lat=37.0&lng=127.0`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect(body.id).toBe(capId);
+  expect(body.product?.product_type).toBe('EASTER_EGG');
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await client.query('DELETE FROM capsules WHERE id = $1', [capId]);
+  await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('캡슐 조회 403 (친구 아님)', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  const capId = await createCapsule(owner.id, null, 37.0, 127.0);
+
+  const res = await api.get(`/api/capsules/${capId}?lat=37.0&lng=127.0`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+
+  expect(res.status()).toBe(403);
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await client.query('DELETE FROM capsules WHERE id = $1', [capId]);
+  await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('캡슐 조회 403 (위치 반경 밖)', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  await connectFriends(owner.id, viewer.id);
+  const capId = await createCapsule(owner.id, null, 37.0, 127.0);
+
+  const res = await api.get(`/api/capsules/${capId}?lat=38.0&lng=128.0`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+
+  expect(res.status()).toBe(403);
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await client.query('DELETE FROM capsules WHERE id = $1', [capId]);
+  await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('캡슐 조회 404 (없음)', async () => {
+  const viewer = await createUser(3);
+  const fakeId = crypto.randomUUID();
+
+  const res = await api.get(`/api/capsules/${fakeId}?lat=37.0&lng=127.0`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+
+  expect(res.status()).toBe(404);
+
+  await cleanupUser(viewer.id);
+});
+
+test('캡슐 조회 400 (uuid 형식 오류)', async () => {
+  const viewer = await createUser(3);
+  const res = await api.get(`/api/capsules/not-uuid?lat=37.0&lng=127.0`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+  expect(res.status()).toBe(400);
+  await cleanupUser(viewer.id);
 });
 
 test('슬롯 부족 시 409', async () => {

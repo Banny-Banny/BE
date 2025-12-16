@@ -1,4 +1,12 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -10,6 +18,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
 import { CapsulesService } from './capsules.service';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
+import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
 
 @ApiTags('Capsules')
 @ApiBearerAuth('access-token')
@@ -39,6 +48,47 @@ export class CapsulesController {
       view_limit: capsule.viewLimit,
       media_types: capsule.mediaTypes,
       media_urls: capsule.mediaUrls,
+    };
+  }
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '이스터에그(캡슐) 조회',
+    description:
+      '위치 도달 + 친구(connected)일 때만 열람 가능. lat/lng 쿼리로 위치 검증.',
+  })
+  @ApiResponse({ status: 200, description: '조회 성공' })
+  @ApiResponse({ status: 400, description: '잘못된 id 또는 좌표' })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 403, description: '위치 미도달 또는 친구 아님' })
+  @ApiResponse({ status: 404, description: '캡슐 미존재/삭제' })
+  async findOne(
+    @CurrentUser() user: User,
+    @Param() params: GetCapsuleParamDto,
+    @Query() query: GetCapsuleQueryDto,
+  ) {
+    const capsule = await this.capsulesService.findOne(user, params.id, query);
+
+    return {
+      id: capsule.id,
+      title: capsule.title,
+      content: capsule.content,
+      open_at: capsule.openAt,
+      is_locked: capsule.isLocked,
+      view_limit: capsule.viewLimit,
+      view_count: capsule.viewCount,
+      media_types: capsule.mediaTypes,
+      media_urls: capsule.mediaUrls,
+      product: capsule.product
+        ? {
+            id: capsule.product.id,
+            product_type: capsule.product.productType,
+            max_media_count: capsule.product.maxMediaCount,
+          }
+        : null,
+      latitude: capsule.latitude,
+      longitude: capsule.longitude,
     };
   }
 }

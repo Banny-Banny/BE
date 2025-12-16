@@ -3,14 +3,18 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
 import { User } from '../entities/user.entity';
 import { Product, ProductType } from '../entities/product.entity';
+import { Friendship } from '../entities/friendship.entity';
+import { FriendStatus } from '../common/enums';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { MediaType } from '../common/enums';
+import { GetCapsuleQueryDto } from './dto/get-capsule.dto';
 
 @Injectable()
 export class CapsulesService {
@@ -21,6 +25,8 @@ export class CapsulesService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(Friendship)
+    private readonly friendshipRepository: Repository<Friendship>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -71,6 +77,32 @@ export class CapsulesService {
       mediaUrls: normalizedUrls.length ? normalizedUrls : null,
       mediaTypes: normalizedTypes.length ? normalizedTypes : null,
     };
+  }
+
+  private isWithinRadius(
+    capsuleLat: number | null,
+    capsuleLng: number | null,
+    userLat?: number,
+    userLng?: number,
+    radiusMeters = 50,
+  ): boolean {
+    if (!capsuleLat || !capsuleLng) return true; // 위치 없는 캡슐은 위치 제약 없음
+    if (userLat === undefined || userLng === undefined) return false;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371e3;
+    const phi1 = toRad(capsuleLat);
+    const phi2 = toRad(userLat);
+    const dPhi = toRad(userLat - capsuleLat);
+    const dLambda = toRad(userLng - capsuleLng);
+    const a =
+      Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
+      Math.cos(phi1) *
+        Math.cos(phi2) *
+        Math.sin(dLambda / 2) *
+        Math.sin(dLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return distance <= radiusMeters;
   }
 
   async create(user: User, dto: CreateCapsuleDto): Promise<Capsule> {
@@ -141,5 +173,66 @@ export class CapsulesService {
       const saved: Capsule = await manager.getRepository(Capsule).save(capsule);
       return saved;
     });
+  }
+
+  async findOne(user: User, id: string, query: GetCapsuleQueryDto) {
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id },
+      relations: { product: true },
+    });
+
+    if (!capsule || capsule.deletedAt) {
+      throw new NotFoundException('CAPSULE_NOT_FOUND');
+    }
+
+    // 친구 여부 확인
+    const friend = await this.friendshipRepository.findOne({
+      where: [
+        {
+          userId: user.id,
+          friendId: capsule.userId,
+          status: FriendStatus.CONNECTED,
+        },
+        {
+          userId: capsule.userId,
+          friendId: user.id,
+          status: FriendStatus.CONNECTED,
+        },
+      ],
+    });
+
+    if (!friend) {
+      throw new ForbiddenException('FORBIDDEN_FRIENDSHIP');
+    }
+
+    // 위치 검증
+    const { lat, lng } = query;
+    const within = this.isWithinRadius(
+      capsule.latitude,
+      capsule.longitude,
+      lat,
+      lng,
+    );
+    if (!within) {
+      throw new ForbiddenException('FORBIDDEN_LOCATION');
+    }
+
+    const isLocked =
+      capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
+
+    return {
+      id: capsule.id,
+      title: capsule.title,
+      content: capsule.content,
+      openAt: capsule.openAt,
+      isLocked,
+      viewLimit: capsule.viewLimit,
+      viewCount: capsule.viewCount,
+      mediaTypes: capsule.mediaTypes,
+      mediaUrls: capsule.mediaUrls,
+      product: capsule.product,
+      latitude: capsule.latitude,
+      longitude: capsule.longitude,
+    } as Capsule;
   }
 }
