@@ -12,12 +12,14 @@ import {
   ApiOperation,
   ApiResponse,
   ApiTags,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
 import { CapsulesService } from './capsules.service';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
+import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
 import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
 
 @ApiTags('Capsules')
@@ -25,6 +27,103 @@ import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
 @Controller('capsules')
 export class CapsulesController {
   constructor(private readonly capsulesService: CapsulesService) {}
+
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '이스터에그(캡슐) 위치 기반 목록',
+    description:
+      'lat/lng 필수. radius_m(기본 300m), 친구/반경/소진 필터로 접근 가능한 캡슐 목록을 반환합니다.',
+  })
+  @ApiResponse({ status: 200, description: '목록 조회 성공' })
+  @ApiResponse({ status: 400, description: '좌표/반경/limit 검증 실패' })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 403, description: '시스템 정책 차단' })
+  @ApiOperation({
+    summary: '이스터에그(캡슐) 위치 기반 목록',
+    description:
+      'lat/lng 필수. radius_m(기본 300m), 친구/반경/소진 필터로 접근 가능한 캡슐 목록을 반환합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '목록 조회 성공',
+    schema: {
+      example: {
+        items: [
+          {
+            id: 'uuid',
+            title: 'capsule',
+            content: null,
+            open_at: '2025-12-31T00:00:00.000Z',
+            is_locked: true,
+            view_limit: 1,
+            view_count: 0,
+            can_open: false,
+            latitude: 37.12,
+            longitude: 127.12,
+            distance_m: 120.5,
+            media_types: ['IMAGE'],
+            media_urls: ['https://...'],
+            product: {
+              id: 'uuid|null',
+              product_type: 'EASTER_EGG',
+              max_media_count: 3,
+              media_types: ['IMAGE'],
+            },
+          },
+        ],
+        page_info: { next_cursor: '...' },
+      },
+    },
+  })
+  @ApiQuery({
+    name: 'lat',
+    required: true,
+    type: Number,
+    description: '사용자 현재 위도',
+  })
+  @ApiQuery({
+    name: 'lng',
+    required: true,
+    type: Number,
+    description: '사용자 현재 경도',
+  })
+  @ApiQuery({
+    name: 'radius_m',
+    required: false,
+    type: Number,
+    description: '조회 반경(m). 기본 300, 최소 10, 최대 5000',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: '페이지 크기. 기본 50, 최대 200',
+  })
+  @ApiQuery({
+    name: 'cursor',
+    required: false,
+    type: String,
+    description: '다음 페이지 커서 (base64)',
+  })
+  @ApiQuery({
+    name: 'include_locationless',
+    required: false,
+    type: Boolean,
+    description: '좌표 없는 캡슐도 포함 여부 (기본 false)',
+  })
+  @ApiQuery({
+    name: 'include_consumed',
+    required: false,
+    type: Boolean,
+    description: 'view_limit 소진 캡슐도 can_open=false로 포함 (기본 false)',
+  })
+  async findNearby(
+    @CurrentUser() user: User,
+    @Query() query: GetCapsulesListQueryDto,
+  ) {
+    return this.capsulesService.findNearby(user, query);
+  }
 
   @Post()
   @UseGuards(JwtAuthGuard)

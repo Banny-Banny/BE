@@ -15,6 +15,7 @@ import { FriendStatus } from '../common/enums';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { MediaType } from '../common/enums';
 import { GetCapsuleQueryDto } from './dto/get-capsule.dto';
+import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
 
 @Injectable()
 export class CapsulesService {
@@ -103,6 +104,11 @@ export class CapsulesService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distance = R * c;
     return distance <= radiusMeters;
+  }
+
+  private buildDistanceExpr(lat: number, lng: number) {
+    // Haversine formula in meters
+    return `6371000 * 2 * ASIN(SQRT(POWER(SIN(RADIANS((capsule.latitude - ${lat}) / 2)), 2) + COS(RADIANS(${lat})) * COS(RADIANS(capsule.latitude)) * POWER(SIN(RADIANS((capsule.longitude - ${lng}) / 2)), 2)))`;
   }
 
   async create(user: User, dto: CreateCapsuleDto): Promise<Capsule> {
@@ -234,5 +240,124 @@ export class CapsulesService {
       latitude: capsule.latitude,
       longitude: capsule.longitude,
     } as Capsule;
+  }
+
+  async findNearby(user: User, query: GetCapsulesListQueryDto) {
+    const {
+      lat,
+      lng,
+      radius_m = 300,
+      limit = 50,
+      include_locationless = false,
+      include_consumed = false,
+    } = query;
+
+    if (radius_m < 10 || radius_m > 5000) {
+      throw new BadRequestException('RADIUS_OUT_OF_RANGE');
+    }
+    if (limit < 1 || limit > 200) {
+      throw new BadRequestException('LIMIT_OUT_OF_RANGE');
+    }
+
+    const qb = this.capsuleRepository
+      .createQueryBuilder('capsule')
+      .leftJoinAndSelect('capsule.product', 'product')
+      .where('capsule.deleted_at IS NULL')
+      .andWhere('(product.id IS NULL OR product.isActive = true)')
+      .andWhere(
+        `(EXISTS (SELECT 1 FROM friendships f WHERE f.user_id = :userId AND f.friend_id = capsule.user_id AND f.status = :status)
+        OR EXISTS (SELECT 1 FROM friendships fr WHERE fr.user_id = capsule.user_id AND fr.friend_id = :userId AND fr.status = :status))`,
+        { userId: user.id, status: FriendStatus.CONNECTED },
+      );
+
+    if (!include_locationless) {
+      qb.andWhere(
+        'capsule.latitude IS NOT NULL AND capsule.longitude IS NOT NULL',
+      );
+    }
+
+    qb.andWhere(
+      `(capsule.latitude IS NULL OR capsule.longitude IS NULL OR ${this.buildDistanceExpr(
+        lat,
+        lng,
+      )} <= :radius_m)`,
+      { radius_m },
+    );
+
+    if (!include_consumed) {
+      qb.andWhere(
+        '(capsule.view_limit = 0 OR capsule.view_count < capsule.view_limit)',
+      );
+    }
+
+    qb.take(limit + 1);
+
+    const entities = await qb.getMany();
+    const sliceEntities = entities.slice(0, limit);
+    const items = sliceEntities.map((capsule) => {
+      const distance =
+        capsule.latitude !== null &&
+        capsule.longitude !== null &&
+        this.isWithinRadius(
+          capsule.latitude,
+          capsule.longitude,
+          lat,
+          lng,
+          Number.MAX_SAFE_INTEGER,
+        )
+          ? (() => {
+              const toRad = (deg: number) => (deg * Math.PI) / 180;
+              const R = 6371e3;
+              const phi1 = toRad(capsule.latitude);
+              const phi2 = toRad(lat);
+              const dPhi = toRad(lat - capsule.latitude);
+              const dLambda = toRad(lng - capsule.longitude);
+              const a =
+                Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
+                Math.cos(phi1) *
+                  Math.cos(phi2) *
+                  Math.sin(dLambda / 2) *
+                  Math.sin(dLambda / 2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              return R * c;
+            })()
+          : null;
+      const canOpen =
+        capsule.viewLimit === 0 || capsule.viewCount < capsule.viewLimit;
+      const isLocked =
+        capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
+
+      return {
+        id: capsule.id,
+        title: capsule.title,
+        content: isLocked ? null : capsule.content,
+        open_at: capsule.openAt,
+        is_locked: isLocked,
+        view_limit: capsule.viewLimit,
+        view_count: capsule.viewCount,
+        can_open: canOpen,
+        latitude: capsule.latitude,
+        longitude: capsule.longitude,
+        distance_m:
+          distance !== null && Number.isFinite(distance)
+            ? Math.round(distance * 10) / 10
+            : null,
+        media_types: capsule.mediaTypes,
+        media_urls: capsule.mediaUrls,
+        product: capsule.product
+          ? {
+              id: capsule.product.id,
+              product_type: capsule.product.productType,
+              max_media_count: capsule.product.maxMediaCount,
+              media_types: capsule.product.mediaTypes,
+            }
+          : null,
+      };
+    });
+
+    return {
+      items,
+      page_info: null,
+    };
   }
 }

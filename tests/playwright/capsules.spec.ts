@@ -101,6 +101,19 @@ async function createCapsule(ownerId: string, productId: string | null, lat = 37
   return capId;
 }
 
+async function createConsumedCapsule(ownerId: string, lat = 37.0, lng = 127.0) {
+  const capId = crypto.randomUUID();
+  await client.query(
+    `
+    INSERT INTO capsules (id, user_id, title, content, media_urls, media_types, open_at, is_locked, view_limit, view_count, latitude, longitude)
+    VALUES ($1, $2, 'capsule-consumed', 'content', '{"https://cdn.example.com/1.jpg"}', '{"IMAGE"}',
+            NOW() - interval '1 day', false, 1, 1, $3, $4)
+    `,
+    [capId, ownerId, lat, lng],
+  );
+  return capId;
+}
+
 test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
   const { id, token } = await createUser(3);
   const openAt = new Date(Date.now() + 60_000).toISOString();
@@ -251,6 +264,73 @@ test('open_at이 과거면 400', async () => {
   expect(res.status()).toBe(400);
 
   await cleanupUser(id);
+});
+
+test('목록 조회 200: 반경 내 + 친구', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  await connectFriends(owner.id, viewer.id);
+  const productId = await createProductEasterEgg(1);
+  const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
+
+  const res = await api.get(
+    `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10`,
+    { headers: { Authorization: `Bearer ${viewer.token}` } },
+  );
+
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body.items)).toBe(true);
+  const found = body.items.find((item) => item.id === capId);
+  expect(found).toBeTruthy();
+  expect(found.product.product_type).toBe('EASTER_EGG');
+  expect(found.is_locked).toBe(true);
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await client.query('DELETE FROM capsules WHERE id = $1', [capId]);
+  await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('목록 조회에서 소비된 캡슐 기본 제외, include_consumed=true 시 노출', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  await connectFriends(owner.id, viewer.id);
+  const consumedId = await createConsumedCapsule(owner.id, 37.0, 127.0);
+
+  const res1 = await api.get(
+    `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10`,
+    { headers: { Authorization: `Bearer ${viewer.token}` } },
+  );
+  expect(res1.status()).toBe(200);
+  const body1 = await res1.json();
+  const found1 = body1.items.find((item) => item.id === consumedId);
+  expect(found1).toBeFalsy();
+
+  const res2 = await api.get(
+    `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10&include_consumed=true`,
+    { headers: { Authorization: `Bearer ${viewer.token}` } },
+  );
+  expect(res2.status()).toBe(200);
+  const body2 = await res2.json();
+  const found2 = body2.items.find((item) => item.id === consumedId);
+  expect(found2).toBeTruthy();
+  expect(found2.can_open).toBe(false);
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await client.query('DELETE FROM capsules WHERE id = $1', [consumedId]);
+  await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('목록 조회 400: 좌표 범위/반경/limit 오류', async () => {
+  const viewer = await createUser(3);
+  const res = await api.get(
+    `/api/capsules?lat=1000&lng=127.0&radius_m=999999&limit=999`,
+    { headers: { Authorization: `Bearer ${viewer.token}` } },
+  );
+  expect(res.status()).toBe(400);
+  await cleanupUser(viewer.id);
 });
 
 test('media type가 IMAGE인데 url 없음 → 400', async () => {
