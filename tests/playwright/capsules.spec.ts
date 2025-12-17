@@ -118,7 +118,7 @@ test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
   const { id, token } = await createUser(3);
   const openAt = new Date(Date.now() + 60_000).toISOString();
 
-  const res = await api.post('/api/capsules', {
+  const res = await api.post('/api/capsule', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'e2e capsule',
@@ -154,7 +154,7 @@ test('캡슐 조회 200 (친구+위치 도달)', async () => {
   const productId = await createProductEasterEgg(1);
   const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
 
-  const res = await api.get(`/api/capsules/${capId}?lat=37.0&lng=127.0`, {
+  const res = await api.get(`/api/capsule/${capId}?lat=37.0&lng=127.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
   });
 
@@ -174,7 +174,7 @@ test('캡슐 조회 403 (친구 아님)', async () => {
   const viewer = await createUser(3);
   const capId = await createCapsule(owner.id, null, 37.0, 127.0);
 
-  const res = await api.get(`/api/capsules/${capId}?lat=37.0&lng=127.0`, {
+  const res = await api.get(`/api/capsule/${capId}?lat=37.0&lng=127.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
   });
 
@@ -192,7 +192,7 @@ test('캡슐 조회 403 (위치 반경 밖)', async () => {
   await connectFriends(owner.id, viewer.id);
   const capId = await createCapsule(owner.id, null, 37.0, 127.0);
 
-  const res = await api.get(`/api/capsules/${capId}?lat=38.0&lng=128.0`, {
+  const res = await api.get(`/api/capsule/${capId}?lat=38.0&lng=128.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
   });
 
@@ -208,7 +208,7 @@ test('캡슐 조회 404 (없음)', async () => {
   const viewer = await createUser(3);
   const fakeId = crypto.randomUUID();
 
-  const res = await api.get(`/api/capsules/${fakeId}?lat=37.0&lng=127.0`, {
+  const res = await api.get(`/api/capsule/${fakeId}?lat=37.0&lng=127.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
   });
 
@@ -219,7 +219,7 @@ test('캡슐 조회 404 (없음)', async () => {
 
 test('캡슐 조회 400 (uuid 형식 오류)', async () => {
   const viewer = await createUser(3);
-  const res = await api.get(`/api/capsules/not-uuid?lat=37.0&lng=127.0`, {
+  const res = await api.get(`/api/capsule/not-uuid?lat=37.0&lng=127.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
   });
   expect(res.status()).toBe(400);
@@ -230,7 +230,7 @@ test('슬롯 부족 시 409', async () => {
   const { id, token } = await createUser(0);
   const openAt = new Date(Date.now() + 60_000).toISOString();
 
-  const res = await api.post('/api/capsules', {
+  const res = await api.post('/api/capsule', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'slot exhausted',
@@ -250,7 +250,7 @@ test('open_at이 과거면 400', async () => {
   const { id, token } = await createUser(3);
   const past = new Date(Date.now() - 60_000).toISOString();
 
-  const res = await api.post('/api/capsules', {
+  const res = await api.post('/api/capsule', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'past open',
@@ -274,7 +274,7 @@ test('목록 조회 200: 반경 내 + 친구', async () => {
   const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
 
   const res = await api.get(
-    `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10`,
+    `/api/capsule?lat=37.0&lng=127.0&radius_m=500&limit=10`,
     { headers: { Authorization: `Bearer ${viewer.token}` } },
   );
 
@@ -299,7 +299,7 @@ test('목록 조회에서 소비된 캡슐 기본 제외, include_consumed=true 
   const consumedId = await createConsumedCapsule(owner.id, 37.0, 127.0);
 
   const res1 = await api.get(
-    `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10`,
+    `/api/capsule?lat=37.0&lng=127.0&radius_m=500&limit=10`,
     { headers: { Authorization: `Bearer ${viewer.token}` } },
   );
   expect(res1.status()).toBe(200);
@@ -308,7 +308,7 @@ test('목록 조회에서 소비된 캡슐 기본 제외, include_consumed=true 
   expect(found1).toBeFalsy();
 
   const res2 = await api.get(
-    `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10&include_consumed=true`,
+    `/api/capsule?lat=37.0&lng=127.0&radius_m=500&limit=10&include_consumed=true`,
     { headers: { Authorization: `Bearer ${viewer.token}` } },
   );
   expect(res2.status()).toBe(200);
@@ -326,7 +326,7 @@ test('목록 조회에서 소비된 캡슐 기본 제외, include_consumed=true 
 test('목록 조회 400: 좌표 범위/반경/limit 오류', async () => {
   const viewer = await createUser(3);
   const res = await api.get(
-    `/api/capsules?lat=1000&lng=127.0&radius_m=999999&limit=999`,
+    `/api/capsule?lat=1000&lng=127.0&radius_m=999999&limit=999`,
     { headers: { Authorization: `Bearer ${viewer.token}` } },
   );
   expect(res.status()).toBe(400);
@@ -337,7 +337,7 @@ test('media type가 IMAGE인데 url 없음 → 400', async () => {
   const { id, token } = await createUser(3);
   const openAt = new Date(Date.now() + 60_000).toISOString();
 
-  const res = await api.post('/api/capsules', {
+  const res = await api.post('/api/capsule', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'media mismatch',
@@ -360,7 +360,7 @@ test('EASTER_EGG 상품 max_media_count 초과시 400', async () => {
   const productId = await createProductEasterEgg(1);
   const openAt = new Date(Date.now() + 60_000).toISOString();
 
-  const res = await api.post('/api/capsules', {
+  const res = await api.post('/api/capsule', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'product limit',

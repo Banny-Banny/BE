@@ -24,7 +24,7 @@ import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
 
 @ApiTags('Capsules')
 @ApiBearerAuth('access-token')
-@Controller('capsules')
+@Controller('capsule')
 export class CapsulesController {
   constructor(private readonly capsulesService: CapsulesService) {}
 
