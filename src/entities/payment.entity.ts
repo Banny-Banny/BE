@@ -56,6 +56,14 @@ export class Payment {
   })
   approvedAt: Date;
 
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+    name: 'pg_raw',
+    comment: 'PG 응답 원문 (준비/승인)',
+  })
+  pgRaw: any;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

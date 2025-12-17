@@ -5,6 +5,8 @@ import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
 import { CapsulesModule } from './capsules/capsules.module';
+import { OrdersModule } from './orders/orders.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { CapsulesModule } from './capsules/capsules.module';
     AuthModule,
     // 이스터에그/캡슐 모듈
     CapsulesModule,
+    OrdersModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

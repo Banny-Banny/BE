@@ -1,0 +1,150 @@
+import 'reflect-metadata';
+import { test, expect, request, APIRequestContext } from '@playwright/test';
+import { Client } from 'pg';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+
+const DB_CONFIG = {
+  host: process.env.DB_HOST ?? 'localhost',
+  port: Number(process.env.DB_PORT ?? 5432),
+  user: process.env.DB_USERNAME ?? '',
+  password: process.env.DB_PASSWORD ?? '',
+  database: process.env.DB_DATABASE ?? '',
+};
+
+const JWT_SECRET =
+  process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
+
+const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440100';
+
+let api: APIRequestContext;
+let client: Client;
+
+async function createUser() {
+  const id = crypto.randomUUID();
+  const phone = `010-${Math.floor(Math.random() * 9000 + 1000)}-${Math.floor(
+    Math.random() * 9000 + 1000,
+  )}`;
+  await client.query(
+    `
+    INSERT INTO users (id, nickname, phone_number, provider, egg_slots)
+    VALUES ($1, $2, $3, 'LOCAL', 3)
+    `,
+    [id, 'pay-user', phone],
+  );
+  const token = jwt.sign({ sub: id, nickname: 'pay-user' }, JWT_SECRET, {
+    expiresIn: '1h',
+  });
+  return { id, token };
+}
+
+async function cleanupUser(id: string) {
+  await client.query('DELETE FROM users WHERE id = $1', [id]);
+}
+
+async function createProductTimeCapsule() {
+  await client.query('DELETE FROM products WHERE id = $1', [
+    TIME_CAPSULE_PRODUCT_ID,
+  ]);
+  await client.query(
+    `
+    INSERT INTO products (id, name, price, product_type, is_active)
+    VALUES ($1, 'time-capsule-product', 0, 'TIME_CAPSULE', true)
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+}
+
+async function cleanupProducts() {
+  await client.query('DELETE FROM products WHERE id = $1', [
+    TIME_CAPSULE_PRODUCT_ID,
+  ]);
+}
+
+async function cleanupOrdersAndPayments() {
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
+  );
+  await client.query('DELETE FROM orders');
+}
+
+async function createOrder(token: string) {
+  const res = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+      add_music: false,
+      add_video: false,
+    },
+  });
+  if (res.status() !== 201) {
+    console.error('order create', res.status(), await res.text());
+  }
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  return body.order_id as string;
+}
+
+test.beforeAll(async ({ playwright }) => {
+  client = new Client(DB_CONFIG);
+  await client.connect();
+  api = await request.newContext({
+    baseURL: process.env.API_BASE_URL ?? 'http://localhost:3000',
+  });
+});
+
+test.afterAll(async () => {
+  await cleanupOrdersAndPayments();
+  await cleanupProducts();
+  await client.end();
+  await api.dispose();
+});
+
+test('카카오페이 ready → approve 성공 (mock)', async () => {
+  await createProductTimeCapsule();
+  const { id, token } = await createUser();
+  const orderId = await createOrder(token);
+
+  const readyRes = await api.post('/api/payments/kakao/ready', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { order_id: orderId },
+  });
+
+  expect(readyRes.status()).toBe(201);
+  const readyBody = await readyRes.json();
+  expect(readyBody.tid).toBeTruthy();
+  expect(readyBody.redirect_url).toBeTruthy();
+
+  const approveRes = await api.post('/api/payments/kakao/approve', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
+  });
+
+  expect(approveRes.status()).toBe(201);
+  const approveBody = await approveRes.json();
+  expect(approveBody.order_id).toBe(orderId);
+  expect(approveBody.status).toBe('PAID');
+
+  await cleanupUser(id);
+});
+
+test('타인 주문으로 ready 시 401', async () => {
+  await createProductTimeCapsule();
+  const owner = await createUser();
+  const other = await createUser();
+  const orderId = await createOrder(owner.token);
+
+  const readyRes = await api.post('/api/payments/kakao/ready', {
+    headers: { Authorization: `Bearer ${other.token}` },
+    data: { order_id: orderId },
+  });
+
+  expect(readyRes.status()).toBe(401);
+
+  await cleanupUser(owner.id);
+  await cleanupUser(other.id);
+});
+

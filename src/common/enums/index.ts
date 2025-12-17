@@ -17,9 +17,17 @@ export enum MediaType {
  */
 export enum OrderStatus {
   PENDING = 'PENDING', // 결제 시도 중
+  PENDING_PAYMENT = 'PENDING_PAYMENT', // 주문 생성 완료, 결제 대기
   PAID = 'PAID', // 결제 완료
   CANCELED = 'CANCELED', // 사용자 취소
   FAILED = 'FAILED', // 결제 실패 (잔액 부족 등)
+}
+
+export enum TimeOption {
+  ONE_WEEK = '1_WEEK',
+  ONE_MONTH = '1_MONTH',
+  ONE_YEAR = '1_YEAR',
+  CUSTOM = 'CUSTOM',
 }
 
 /**

@@ -6,8 +6,9 @@ import {
   ManyToOne,
   JoinColumn,
   OneToOne,
+  UpdateDateColumn,
 } from 'typeorm';
-import { OrderStatus } from '../common/enums';
+import { OrderStatus, TimeOption } from '../common/enums';
 import { User } from './user.entity';
 import { Product } from './product.entity';
 import { Payment } from './payment.entity';
@@ -36,14 +37,54 @@ export class Order {
 
   @Column({
     type: 'enum',
+    enum: TimeOption,
+    name: 'time_option',
+    comment: '열람 시점 옵션',
+  })
+  timeOption: TimeOption;
+
+  @Column({
+    type: 'timestamp',
+    name: 'custom_open_at',
+    nullable: true,
+    comment: 'CUSTOM 옵션일 때 지정 시각',
+  })
+  customOpenAt: Date | null;
+
+  @Column({
+    type: 'int',
+    name: 'headcount',
+    comment: '인원수 (1~10)',
+  })
+  headcount: number;
+
+  @Column({
+    type: 'int',
+    name: 'photo_count',
+    default: 0,
+    comment: '총 사진 장수 (장당 500원, 총합 ≤ headcount*5)',
+  })
+  photoCount: number;
+
+  @Column({ type: 'boolean', name: 'add_music', default: false })
+  addMusic: boolean;
+
+  @Column({ type: 'boolean', name: 'add_video', default: false })
+  addVideo: boolean;
+
+  @Column({
+    type: 'enum',
     enum: OrderStatus,
-    default: OrderStatus.PENDING,
+    default: OrderStatus.PENDING_PAYMENT,
     comment: '결제 프로세스 상태',
   })
   status: OrderStatus;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', nullable: true })
+  updatedAt: Date | null;
 
   // Relations
   @ManyToOne(() => User, (user) => user.orders, { onDelete: 'CASCADE' })
