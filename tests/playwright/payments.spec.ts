@@ -85,6 +85,12 @@ async function createOrder(token: string) {
   }
   expect(res.status()).toBe(201);
   const body = await res.json();
+  // 금액 필드 검증: base 1000 + photo 500 = 1500
+  expect(body.base_amount).toBe(1000);
+  expect(body.photo_amount).toBe(500);
+  expect(body.music_amount).toBe(0);
+  expect(body.video_amount).toBe(0);
+  expect(body.total_amount).toBe(1500);
   return body.order_id as string;
 }
 

@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-  import { InjectRepository } from '@nestjs/typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { Product, ProductType } from '../entities/product.entity';
@@ -30,6 +30,7 @@ export class OrdersService {
     if (photoCount < 0) {
       throw new BadRequestException('PHOTO_COUNT_NEGATIVE');
     }
+    // 사진 개수는 인당 최대 5장 → 총합은 headcount*5를 초과할 수 없음
     const maxPhotos = headcount * 5;
     if (photoCount > maxPhotos) {
       throw new BadRequestException('PHOTO_COUNT_EXCEEDS_LIMIT');
@@ -49,8 +50,8 @@ export class OrdersService {
   private calculateAmount(dto: CreateOrderDto): number {
     const basePrice = 1000; // 1주 옵션 기본가를 baseline으로 적용
     const photoUnit = 500;
-    const musicPrice = dto.add_music ? 1000 : 0;
-    const videoPrice = dto.add_video ? 2000 : 0;
+    const musicPrice = dto.add_music ? dto.headcount * 1000 : 0; // 인원당 1개 가능
+    const videoPrice = dto.add_video ? dto.headcount * 2000 : 0; // 인원당 1개 가능
 
     const photoPrice = (dto.photo_count ?? 0) * photoUnit;
     return basePrice + photoPrice + musicPrice + videoPrice;
@@ -66,14 +67,21 @@ export class OrdersService {
       throw new NotFoundException('PRODUCT_NOT_FOUND_OR_INVALID');
     }
 
-    const totalAmount = this.calculateAmount(dto);
+    const baseAmount = 1000;
+    const photoAmount = (dto.photo_count ?? 0) * 500;
+    const musicAmount = dto.add_music ? dto.headcount * 1000 : 0;
+    const videoAmount = dto.add_video ? dto.headcount * 2000 : 0;
+    const totalAmount = baseAmount + photoAmount + musicAmount + videoAmount;
 
     const order = this.orderRepository.create({
       userId: user.id,
       productId: product.id,
       totalAmount,
       timeOption: dto.time_option,
-      customOpenAt: dto.time_option === TimeOption.CUSTOM ? new Date(dto.custom_open_at!) : null,
+      customOpenAt:
+        dto.time_option === TimeOption.CUSTOM
+          ? new Date(dto.custom_open_at!)
+          : null,
       headcount: dto.headcount,
       photoCount: dto.photo_count ?? 0,
       addMusic: dto.add_music ?? false,
@@ -85,6 +93,10 @@ export class OrdersService {
     return {
       order_id: saved.id,
       total_amount: saved.totalAmount,
+      base_amount: baseAmount,
+      photo_amount: photoAmount,
+      music_amount: musicAmount,
+      video_amount: videoAmount,
       time_option: saved.timeOption,
       custom_open_at: saved.customOpenAt,
       headcount: saved.headcount,
@@ -95,4 +107,3 @@ export class OrdersService {
     };
   }
 }
-

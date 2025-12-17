@@ -2,7 +2,7 @@
 
 ## 1. 목표
 - TIME_CAPSULE 상품을 선택해 주문 생성(결제 전 단계) 및 총액 계산.
-- 옵션: 열람 시점(1주/1달/1년/커스텀), 인원(1~10), 사진(장당 500원, 총 사진 ≤ 인원*5), 추가 옵션(배경음악 1000원, 동영상 2000원).
+- 옵션: 열람 시점(1주/1달/1년/커스텀), 인원(1~10), 사진(장당 500원, 인원당 최대 5장 → 총 사진 ≤ 인원수*5), 추가 옵션(배경음악 인당 1000원, 동영상 인당 2000원).
 - 결과: order에 옵션/금액 저장, 상태 PENDING_PAYMENT.
 
 ## 2. 인풋 & 의존성
@@ -25,10 +25,10 @@
   - add_music?: bool
   - add_video?: bool
 - 가격 정책:
-  - base: 1_WEEK = 1000 (다른 옵션은 정책 확장 여지, 일단 동일 베이스 적용)
+  - base: 1_WEEK = 1000 (baseline)
   - photo: 500 * photo_count
-  - music: +1000 if add_music
-  - video: +2000 if add_video
+  - music: headcount * 1000 if add_music
+  - video: headcount * 2000 if add_video
 - 권한/업로드: 음악/동영상은 구매자만 업로드 가능 (주문 생성 시 flag로만 저장, 업로드는 결제 후 단계에서 검증).
 - 저장: orders 테이블에 옵션/총액/상태(PENDING_PAYMENT) 저장.
 
@@ -48,7 +48,7 @@
   - Auth: Bearer JWT
   - Body: product_id, time_option, custom_open_at?, headcount, photo_count, add_music?, add_video?
   - Responses:
-    - 201: { order_id, total_amount, time_option, custom_open_at?, headcount, photo_count, add_music, add_video, status }
+    - 201: { order_id, total_amount, base_amount, photo_amount, music_amount, video_amount, time_option, custom_open_at?, headcount, photo_count, add_music, add_video, status }
     - 400: 옵션/범위/시간 검증 실패
     - 401: 인증 실패
     - 404: product 미존재/비활성 or 타입 불일치
@@ -58,7 +58,7 @@
 - time_option: enum, CUSTOM이면 custom_open_at 미래
 - headcount: 1~10
 - photo_count: 0 이상, ≤ headcount*5
-- 금액: base(1000) + photo_count*500 + (add_music?1000:0) + (add_video?2000:0)
+- 금액: base(1000) + photo_count*500 + (add_music? headcount*1000 : 0) + (add_video? headcount*2000 : 0)
 - status: PENDING_PAYMENT 저장
 
 ## 8. 에러 코드 가이드
