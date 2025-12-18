@@ -6,3 +6,4 @@ export * from './order.entity';
 export * from './payment.entity';
 export * from './friendship.entity';
 export * from './customer-service.entity';
+export * from './media.entity';

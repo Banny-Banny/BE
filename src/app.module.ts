@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { CapsulesModule } from './capsules/capsules.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { PaymentsModule } from './payments/payments.module';
     CapsulesModule,
     OrdersModule,
     PaymentsModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

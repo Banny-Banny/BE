@@ -12,6 +12,7 @@ import { Order } from './order.entity';
 import { Friendship } from './friendship.entity';
 import { CapsuleAccessLog } from './capsule-access-log.entity';
 import { CustomerService } from './customer-service.entity';
+import { Media } from './media.entity';
 
 /**
  * 사용자 기본 정보
@@ -144,4 +145,7 @@ export class User {
 
   @OneToMany(() => CustomerService, (cs) => cs.user)
   customerServices: CustomerService[];
+
+  @OneToMany(() => Media, (media) => media.user)
+  media: Media[];
 }

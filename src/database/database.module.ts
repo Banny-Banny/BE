@@ -10,6 +10,7 @@ import {
   Payment,
   Friendship,
   CustomerService,
+  Media,
 } from '../entities';
 
 @Module({
@@ -33,6 +34,7 @@ import {
           Payment,
           Friendship,
           CustomerService,
+          Media,
         ],
         synchronize: configService.get<string>('NODE_ENV') === 'development', // 개발 환경에서만 true
         logging: configService.get<string>('NODE_ENV') === 'development',
