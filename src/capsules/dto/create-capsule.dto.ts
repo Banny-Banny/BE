@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsDateString,
   IsEnum,
@@ -9,13 +10,24 @@ import {
   IsUUID,
   MaxLength,
   Min,
-  ArrayMaxSize,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { MediaType } from '../../common/enums';
+
+export class TextBlockDto {
+  @IsInt()
+  @Min(0)
+  order: number;
+
+  @IsString()
+  @MaxLength(500)
+  content: string;
+}
 
 export class CreateCapsuleDto {
   @IsString()
-  @MaxLength(500)
+  @MaxLength(100)
   title: string;
 
   @IsOptional()
@@ -42,6 +54,19 @@ export class CreateCapsuleDto {
   @ArrayMaxSize(3)
   @IsEnum(MediaType, { each: true })
   media_types?: (MediaType | null)[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID('all', { each: true })
+  media_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => TextBlockDto)
+  text_blocks?: TextBlockDto[];
 
   @IsOptional()
   @IsDateString()

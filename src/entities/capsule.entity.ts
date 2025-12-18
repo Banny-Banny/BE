@@ -57,7 +57,7 @@ export class Capsule {
   longitude: number | null;
 
   // 콘텐츠
-  @Column({ type: 'varchar', length: 500 })
+  @Column({ type: 'varchar', length: 100 })
   title: string;
 
   @Column({
@@ -79,6 +79,15 @@ export class Capsule {
   mediaUrls: (string | null)[] | null;
 
   @Column({
+    type: 'uuid',
+    array: true,
+    nullable: true,
+    name: 'media_item_ids',
+    comment: 'Media 엔티티 id 목록 (presign/complete 이후 캡슐에 연결)',
+  })
+  mediaItemIds: string[] | null;
+
+  @Column({
     type: 'enum',
     enum: MediaType,
     array: true,
@@ -87,6 +96,19 @@ export class Capsule {
     comment: '저장된 미디어의 종류 목록 (최대 3개, TEXT/IMAGE/VIDEO/MUSIC)',
   })
   mediaTypes: (MediaType | null)[] | null;
+
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+    name: 'text_blocks',
+    comment: '텍스트 블록 배열 { order, content }',
+  })
+  textBlocks:
+    | {
+        order: number;
+        content: string;
+      }[]
+    | null;
 
   // 핵심 로직 (시간 & 수량)
   @Column({

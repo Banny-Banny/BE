@@ -1,14 +1,23 @@
 import 'reflect-metadata';
+import dotenv from 'dotenv';
 import { test, expect, request, APIRequestContext } from '@playwright/test';
 import { Client } from 'pg';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+
+// Load test env first, then fall back to default .env
+dotenv.config({ path: '.env.test' });
+dotenv.config();
 
 const DB_CONFIG = {
-  host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USERNAME ?? '',
-  password: process.env.DB_PASSWORD ?? '',
-  database: process.env.DB_DATABASE ?? '',
+  host: process.env.TEST_DB_HOST ?? process.env.DB_HOST ?? 'localhost',
+  port: Number(process.env.TEST_DB_PORT ?? process.env.DB_PORT ?? 5432),
+  user: process.env.TEST_DB_USERNAME ?? process.env.DB_USERNAME ?? '',
+  password: process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? '',
+  database:
+    process.env.TEST_DB_DATABASE ??
+    process.env.DB_DATABASE ??
+    'banny_banny_test',
 };
 
 const JWT_SECRET =
@@ -112,6 +121,19 @@ async function createConsumedCapsule(ownerId: string, lat = 37.0, lng = 127.0) {
     [capId, ownerId, lat, lng],
   );
   return capId;
+}
+
+async function insertMedia(ownerId: string) {
+  const objectKey = `media/${crypto.randomUUID()}.jpg`;
+  const { rows } = await client.query(
+    `
+    INSERT INTO media (user_id, object_key, type, content_type, size)
+    VALUES ($1, $2, 'IMAGE', 'image/jpeg', 1024)
+    RETURNING id
+    `,
+    [ownerId, objectKey],
+  );
+  return rows[0].id as string;
 }
 
 test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
@@ -377,4 +399,62 @@ test('EASTER_EGG 상품 max_media_count 초과시 400', async () => {
   expect(res.status()).toBe(400);
 
   await cleanupUser(id);
+});
+
+test('media_ids + text_blocks로 캡슐 생성 201', async () => {
+  const owner = await createUser(3);
+  const mediaId = await insertMedia(owner.id);
+
+  const res = await api.post('/api/capsule', {
+    headers: { Authorization: `Bearer ${owner.token}` },
+    data: {
+      title: '멀티미디어 캡슐',
+      media_ids: [mediaId],
+      text_blocks: [
+        { order: 0, content: '첫 번째 메시지' },
+        { order: 1, content: '두 번째 메시지' },
+      ],
+      view_limit: 0,
+    },
+  });
+
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  expect(body.id).toBeTruthy();
+  expect(Array.isArray(body.media_items)).toBe(true);
+  expect(body.media_items[0]?.media_id).toBe(mediaId);
+  expect(body.text_blocks?.length).toBe(2);
+
+  await cleanupUser(owner.id);
+});
+
+test('media_ids + text_blocks 조회 200 (친구)', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  await connectFriends(owner.id, viewer.id);
+  const mediaId = await insertMedia(owner.id);
+
+  const createRes = await api.post('/api/capsule', {
+    headers: { Authorization: `Bearer ${owner.token}` },
+    data: {
+      title: '친구 조회 캡슐',
+      media_ids: [mediaId],
+      text_blocks: [{ order: 0, content: '공유 메시지' }],
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const created = await createRes.json();
+
+  const getRes = await api.get(`/api/capsule/${created.id}`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+
+  expect(getRes.status()).toBe(200);
+  const body = await getRes.json();
+  expect(body.media_items?.[0]?.media_id).toBe(mediaId);
+  expect(body.text_blocks?.[0]?.content).toBe('공유 메시지');
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await cleanupFriendships(owner.id, viewer.id);
 });

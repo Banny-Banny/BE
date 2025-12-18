@@ -25,6 +25,8 @@ import {
         username: configService.get<string>('DB_USERNAME', 'postgres'),
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_DATABASE', 'banny_banny'),
+        // Supabase 등 pgcrypto 기반 UUID 사용 시 gen_random_uuid()로 생성
+        uuidExtension: 'pgcrypto',
         entities: [
           User,
           Product,

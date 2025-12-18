@@ -9,7 +9,8 @@ export enum MediaType {
   TEXT = 'TEXT', // 텍스트만 포함된 캡슐
   IMAGE = 'IMAGE', // 사진이 포함된 캡슐
   VIDEO = 'VIDEO', // 영상이 포함된 캡슐
-  MUSIC = 'MUSIC', // 음악이 포함된 캡슐
+  AUDIO = 'AUDIO', // 음악/오디오가 포함된 캡슐
+  MUSIC = 'MUSIC', // (deprecated) 과거 호환용
 }
 
 /**

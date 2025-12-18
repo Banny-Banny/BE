@@ -18,7 +18,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./tests/jest/jest-e2e.json",
-    "test:pw": "playwright test"
+    "test:pw": "playwright test",
+    "migration:run": "node --require ts-node/register ./node_modules/typeorm/cli.js migration:run -d src/database/typeorm.config.ts",
+    "migration:generate": "node --require ts-node/register ./node_modules/typeorm/cli.js migration:generate ./src/migrations/$(date +%s) -d src/database/typeorm.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.954.0",
@@ -34,6 +36,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "crypto": "^1.0.1",
+    "dotenv": "^16.4.5",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-kakao": "^1.0.1",

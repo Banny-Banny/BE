@@ -21,6 +21,20 @@ import { CapsulesService } from './capsules.service';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
 import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
+import { MediaType } from '../common/enums';
+
+type MediaItemResponse = {
+  media_id: string | null;
+  type: MediaType | null;
+  object_key: string | null;
+};
+
+function extractMediaItems(
+  capsule: { mediaItems?: MediaItemResponse[] } | undefined,
+): MediaItemResponse[] {
+  if (!capsule?.mediaItems) return [];
+  return Array.isArray(capsule.mediaItems) ? capsule.mediaItems : [];
+}
 
 @ApiTags('Capsules')
 @ApiBearerAuth('access-token')
@@ -130,7 +144,7 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그(캡슐) 생성',
     description:
-      '제목/내용(500자), 최대 3개 미디어, view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 슬롯이 없으면 409.',
+      '제목(100자)/텍스트 블록(각 500자)/미디어(media_ids 또는 media_urls/types), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 슬롯이 없으면 409.',
   })
   @ApiResponse({ status: 201, description: '생성 성공' })
   @ApiResponse({ status: 400, description: '검증 실패' })
@@ -139,6 +153,7 @@ export class CapsulesController {
   @ApiResponse({ status: 409, description: '슬롯 부족' })
   async create(@CurrentUser() user: User, @Body() dto: CreateCapsuleDto) {
     const capsule = await this.capsulesService.create(user, dto);
+    const mediaItems = extractMediaItems(capsule as any);
     return {
       id: capsule.id,
       title: capsule.title,
@@ -147,6 +162,8 @@ export class CapsulesController {
       view_limit: capsule.viewLimit,
       media_types: capsule.mediaTypes,
       media_urls: capsule.mediaUrls,
+      media_items: mediaItems,
+      text_blocks: capsule.textBlocks,
     };
   }
 
@@ -168,6 +185,7 @@ export class CapsulesController {
     @Query() query: GetCapsuleQueryDto,
   ) {
     const capsule = await this.capsulesService.findOne(user, params.id, query);
+    const mediaItems = extractMediaItems(capsule as any);
 
     return {
       id: capsule.id,
@@ -179,6 +197,7 @@ export class CapsulesController {
       view_count: capsule.viewCount,
       media_types: capsule.mediaTypes,
       media_urls: capsule.mediaUrls,
+      media_items: mediaItems,
       product: capsule.product
         ? {
             id: capsule.product.id,
@@ -188,6 +207,7 @@ export class CapsulesController {
         : null,
       latitude: capsule.latitude,
       longitude: capsule.longitude,
+      text_blocks: capsule.textBlocks,
     };
   }
 }

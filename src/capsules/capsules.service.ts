@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
 import { User } from '../entities/user.entity';
 import { Product, ProductType } from '../entities/product.entity';
@@ -16,9 +16,14 @@ import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { MediaType } from '../common/enums';
 import { GetCapsuleQueryDto } from './dto/get-capsule.dto';
 import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
+import { Media } from '../entities';
 
 @Injectable()
 export class CapsulesService {
+  private readonly DEFAULT_MEDIA_LIMIT = 3;
+  private readonly TEXT_BLOCK_MAX_COUNT = 5;
+  private readonly TEXT_BLOCK_TOTAL_LIMIT = 2000;
+
   constructor(
     @InjectRepository(Capsule)
     private readonly capsuleRepository: Repository<Capsule>,
@@ -28,6 +33,8 @@ export class CapsulesService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(Friendship)
     private readonly friendshipRepository: Repository<Friendship>,
+    @InjectRepository(Media)
+    private readonly mediaRepository: Repository<Media>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -38,7 +45,8 @@ export class CapsulesService {
     product: Product | null,
   ) {
     const maxLen = Math.max(mediaUrls.length, mediaTypes.length);
-    if (maxLen > 3) {
+    const limit = product?.maxMediaCount ?? this.DEFAULT_MEDIA_LIMIT;
+    if (limit > 0 && maxLen > limit) {
       throw new BadRequestException('MEDIA_LIMIT_EXCEEDED');
     }
 
@@ -80,6 +88,86 @@ export class CapsulesService {
     };
   }
 
+  private validateTextBlocks(
+    textBlocks?: { order: number; content: string }[],
+  ) {
+    if (!textBlocks || textBlocks.length === 0) {
+      return null;
+    }
+
+    if (textBlocks.length > this.TEXT_BLOCK_MAX_COUNT) {
+      throw new BadRequestException('TEXT_BLOCK_LIMIT_EXCEEDED');
+    }
+
+    const seen = new Set<number>();
+    let totalLength = 0;
+    const normalized = textBlocks.map((block) => {
+      if (seen.has(block.order)) {
+        throw new BadRequestException('TEXT_BLOCK_ORDER_DUPLICATED');
+      }
+      seen.add(block.order);
+      const content = block.content?.trim() ?? '';
+      if (!content) {
+        throw new BadRequestException('TEXT_BLOCK_EMPTY');
+      }
+      totalLength += content.length;
+      return {
+        order: block.order,
+        content,
+      };
+    });
+
+    if (totalLength > this.TEXT_BLOCK_TOTAL_LIMIT) {
+      throw new BadRequestException('TEXT_BLOCK_TOTAL_EXCEEDED');
+    }
+
+    return normalized.sort((a, b) => a.order - b.order);
+  }
+
+  private async resolveMediaByIds(
+    user: User,
+    mediaIds: string[],
+    product: Product | null,
+  ) {
+    const uniqueIds = Array.from(new Set(mediaIds));
+    if (uniqueIds.length === 0) {
+      return {
+        mediaItemIds: null as string[] | null,
+        mediaTypes: null as (MediaType | null)[] | null,
+        mediaEntities: [] as Media[],
+      };
+    }
+
+    const limit = product?.maxMediaCount ?? this.DEFAULT_MEDIA_LIMIT;
+    if (limit > 0 && uniqueIds.length > limit) {
+      throw new BadRequestException('MEDIA_LIMIT_EXCEEDED');
+    }
+
+    const mediaEntities = await this.mediaRepository.find({
+      where: { id: In(uniqueIds), userId: user.id },
+    });
+
+    if (mediaEntities.length !== uniqueIds.length) {
+      throw new ForbiddenException('MEDIA_OWNERSHIP_MISMATCH');
+    }
+
+    if (product && product.mediaTypes && product.mediaTypes.length > 0) {
+      mediaEntities.forEach((m) => {
+        if (!product.mediaTypes!.includes(m.type)) {
+          throw new BadRequestException('MEDIA_TYPE_NOT_ALLOWED_FOR_PRODUCT');
+        }
+      });
+    }
+
+    return {
+      mediaItemIds: uniqueIds,
+      mediaTypes: uniqueIds.map(
+        (id) => mediaEntities.find((m) => m.id === id)!.type,
+      ),
+      mediaEntities,
+    };
+  }
+
   private isWithinRadius(
     capsuleLat: number | null,
     capsuleLng: number | null,
@@ -104,6 +192,51 @@ export class CapsulesService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distance = R * c;
     return distance <= radiusMeters;
+  }
+
+  private buildMediaItems(capsule: Capsule, mediaEntities?: Media[]) {
+    const entityMap =
+      mediaEntities?.reduce<Map<string, Media>>((map, m) => {
+        map.set(m.id, m);
+        return map;
+      }, new Map()) ?? new Map<string, Media>();
+
+    if (capsule.mediaItemIds && capsule.mediaItemIds.length > 0) {
+      return capsule.mediaItemIds.map((id, idx) => {
+        const entity = entityMap.get(id);
+        const fallbackType =
+          capsule.mediaTypes && idx < capsule.mediaTypes.length
+            ? capsule.mediaTypes[idx]
+            : null;
+        const fallbackUrl =
+          capsule.mediaUrls && idx < capsule.mediaUrls.length
+            ? capsule.mediaUrls[idx]
+            : null;
+        return {
+          media_id: id,
+          type: entity?.type ?? fallbackType,
+          object_key: entity?.objectKey ?? fallbackUrl ?? null,
+        };
+      });
+    }
+
+    const length = Math.max(
+      capsule.mediaUrls?.length ?? 0,
+      capsule.mediaTypes?.length ?? 0,
+    );
+    const items: {
+      media_id: string | null;
+      type: MediaType | null;
+      object_key: string | null;
+    }[] = [];
+    for (let i = 0; i < length; i++) {
+      items.push({
+        media_id: null,
+        type: capsule.mediaTypes?.[i] ?? null,
+        object_key: capsule.mediaUrls?.[i] ?? null,
+      });
+    }
+    return items;
   }
 
   private buildDistanceExpr(lat: number, lng: number) {
@@ -143,10 +276,25 @@ export class CapsulesService {
       }
     }
 
+    const hasLegacyMedia =
+      (dto.media_urls && dto.media_urls.length > 0) ||
+      (dto.media_types && dto.media_types.length > 0);
+    if (hasLegacyMedia && dto.media_ids && dto.media_ids.length > 0) {
+      throw new BadRequestException('MEDIA_INPUT_CONFLICT');
+    }
+
+    const textBlocks = this.validateTextBlocks(dto.text_blocks);
+
     const mediaUrls = dto.media_urls ?? [];
     const mediaTypes = dto.media_types ?? [];
+
+    const { mediaItemIds, mediaTypes: resolvedMediaTypes } =
+      await this.resolveMediaByIds(user, dto.media_ids ?? [], product);
+
     const { mediaUrls: normalizedUrls, mediaTypes: normalizedTypes } =
-      this.validateMedia(mediaUrls, mediaTypes, product);
+      mediaItemIds === null
+        ? this.validateMedia(mediaUrls, mediaTypes, product)
+        : { mediaUrls: null, mediaTypes: resolvedMediaTypes };
 
     const capsule = new Capsule();
     capsule.userId = user.id;
@@ -156,10 +304,12 @@ export class CapsulesService {
     capsule.title = dto.title;
     capsule.content = dto.content ?? null;
     capsule.mediaUrls = normalizedUrls;
+    capsule.mediaItemIds = mediaItemIds;
     capsule.mediaTypes = normalizedTypes;
     capsule.openAt = openAt;
     capsule.isLocked = true;
     capsule.viewLimit = viewLimit;
+    capsule.textBlocks = textBlocks;
 
     return this.dataSource.transaction<Capsule>(async (manager) => {
       const userRepo = manager.getRepository(User);
@@ -177,7 +327,10 @@ export class CapsulesService {
       await userRepo.save(targetUser);
 
       const saved: Capsule = await manager.getRepository(Capsule).save(capsule);
-      return saved;
+      return {
+        ...saved,
+        mediaItems: this.buildMediaItems(saved),
+      } as Capsule;
     });
   }
 
@@ -226,20 +379,30 @@ export class CapsulesService {
     const isLocked =
       capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
 
+    const mediaEntities =
+      capsule.mediaItemIds && capsule.mediaItemIds.length > 0
+        ? await this.mediaRepository.find({
+            where: { id: In(capsule.mediaItemIds) },
+          })
+        : [];
+    const mediaItems = this.buildMediaItems(capsule, mediaEntities);
+
     return {
       id: capsule.id,
       title: capsule.title,
-      content: capsule.content,
+      content: isLocked ? null : capsule.content,
       openAt: capsule.openAt,
       isLocked,
       viewLimit: capsule.viewLimit,
       viewCount: capsule.viewCount,
       mediaTypes: capsule.mediaTypes,
       mediaUrls: capsule.mediaUrls,
+      mediaItems,
       product: capsule.product,
       latitude: capsule.latitude,
       longitude: capsule.longitude,
-    } as Capsule;
+      textBlocks: isLocked ? null : capsule.textBlocks,
+    };
   }
 
   async findNearby(user: User, query: GetCapsulesListQueryDto) {
@@ -326,6 +489,7 @@ export class CapsulesService {
         capsule.viewLimit === 0 || capsule.viewCount < capsule.viewLimit;
       const isLocked =
         capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
+      const mediaItems = this.buildMediaItems(capsule);
 
       return {
         id: capsule.id,
@@ -344,6 +508,7 @@ export class CapsulesService {
             : null,
         media_types: capsule.mediaTypes,
         media_urls: capsule.mediaUrls,
+        media_items: mediaItems,
         product: capsule.product
           ? {
               id: capsule.product.id,
@@ -352,6 +517,7 @@ export class CapsulesService {
               media_types: capsule.product.mediaTypes,
             }
           : null,
+        text_blocks: isLocked ? null : capsule.textBlocks,
       };
     });
 

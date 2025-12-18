@@ -20,8 +20,10 @@ import { randomUUID } from 'crypto';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const VIDEO_TYPES = ['video/mp4'];
+const AUDIO_TYPES = ['audio/mpeg', 'audio/aac'];
 const IMAGE_MAX = 5 * 1024 * 1024; // 5MB
 const VIDEO_MAX = 200 * 1024 * 1024; // 200MB
+const AUDIO_MAX = 20 * 1024 * 1024; // 20MB
 
 @Injectable()
 export class MediaService {
@@ -56,8 +58,9 @@ export class MediaService {
   private validateFile(dto: PresignMediaDto) {
     const isImage = dto.type === MediaType.IMAGE;
     const isVideo = dto.type === MediaType.VIDEO;
+    const isAudio = dto.type === MediaType.AUDIO;
 
-    if (!isImage && !isVideo) {
+    if (!isImage && !isVideo && !isAudio) {
       throw new BadRequestException('UNSUPPORTED_MEDIA_TYPE');
     }
 
@@ -65,6 +68,9 @@ export class MediaService {
       throw new BadRequestException('INVALID_CONTENT_TYPE');
     }
     if (isVideo && !VIDEO_TYPES.includes(dto.content_type)) {
+      throw new BadRequestException('INVALID_CONTENT_TYPE');
+    }
+    if (isAudio && !AUDIO_TYPES.includes(dto.content_type)) {
       throw new BadRequestException('INVALID_CONTENT_TYPE');
     }
 
@@ -77,6 +83,9 @@ export class MediaService {
     if (isVideo && dto.size > VIDEO_MAX) {
       throw new BadRequestException('VIDEO_SIZE_EXCEEDED');
     }
+    if (isAudio && dto.size > AUDIO_MAX) {
+      throw new BadRequestException('AUDIO_SIZE_EXCEEDED');
+    }
   }
 
   private resolveMediaType(contentType: string): MediaType {
@@ -85,6 +94,9 @@ export class MediaService {
     }
     if (VIDEO_TYPES.includes(contentType)) {
       return MediaType.VIDEO;
+    }
+    if (AUDIO_TYPES.includes(contentType)) {
+      return MediaType.AUDIO;
     }
     throw new BadRequestException('INVALID_CONTENT_TYPE');
   }
