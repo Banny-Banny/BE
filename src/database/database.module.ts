@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   User,
@@ -18,16 +18,11 @@ import {
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST', 'localhost'),
-        port: configService.get<number>('DB_PORT', 5432),
-        username: configService.get<string>('DB_USERNAME', 'postgres'),
-        password: configService.get<string>('DB_PASSWORD', ''),
-        database: configService.get<string>('DB_DATABASE', 'banny_banny'),
-        // Supabase 등 pgcrypto 기반 UUID 사용 시 gen_random_uuid()로 생성
-        uuidExtension: 'pgcrypto',
-        entities: [
+      useFactory: (configService: ConfigService): TypeOrmModuleOptions => {
+        const databaseUrl = configService.get<string>('DATABASE_URL');
+        const isDev = configService.get<string>('NODE_ENV') === 'development';
+
+        const entities = [
           User,
           Product,
           Capsule,
@@ -37,17 +32,68 @@ import {
           Friendship,
           CustomerService,
           Media,
-        ],
-        synchronize: configService.get<string>('NODE_ENV') === 'development', // 개발 환경에서만 true
-        logging: configService.get<string>('NODE_ENV') === 'development',
-        // PostgreSQL 특화 설정
-        extra: {
-          // Connection Pool 설정
+        ];
+
+        const extra = {
           max: 20,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 2000,
-        },
-      }),
+        };
+
+        const pgHost =
+          configService.get<string>('DB_HOST') ||
+          configService.get<string>('PG_HOST') ||
+          'localhost';
+        const pgPort = Number(
+          configService.get<string>('DB_PORT') ||
+            configService.get<string>('PG_PORT') ||
+            '5432',
+        );
+        const pgUser =
+          configService.get<string>('DB_USERNAME') ||
+          configService.get<string>('PG_USER') ||
+          'postgres';
+        const pgPassword =
+          configService.get<string>('DB_PASSWORD') ||
+          configService.get<string>('PG_PASSWORD') ||
+          '';
+        const pgDatabase =
+          configService.get<string>('DB_DATABASE') ||
+          configService.get<string>('PG_DATABASE') ||
+          'banny_banny';
+        const sslEnabled =
+          configService.get<string>('DB_SSL') === 'true' ||
+          (configService.get<string>('PGSSLMODE') ?? '').toLowerCase() !==
+            'disable';
+
+        const options: TypeOrmModuleOptions = databaseUrl
+          ? {
+              type: 'postgres',
+              url: databaseUrl,
+              ssl: { rejectUnauthorized: false },
+              uuidExtension: 'pgcrypto',
+              entities,
+              synchronize: isDev,
+              logging: isDev,
+              extra,
+            }
+          : {
+              type: 'postgres',
+              host: pgHost,
+              port: pgPort,
+              username: pgUser,
+              password: pgPassword,
+              database: pgDatabase,
+              ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
+              uuidExtension: 'pgcrypto',
+              entities,
+              synchronize: isDev,
+              logging: isDev,
+              extra,
+            };
+
+        return options;
+      },
     }),
   ],
 })

@@ -1,4 +1,4 @@
-name: supabase-db-migrate
+name: railway-db-migrate
 
 on:
   push:
@@ -8,8 +8,7 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
-      DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
+      DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

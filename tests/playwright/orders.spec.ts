@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import 'reflect-metadata';
 import { test, expect, request, APIRequestContext } from '@playwright/test';
 import { Client } from 'pg';
@@ -10,10 +13,15 @@ const DB_CONFIG = {
   user: process.env.DB_USERNAME ?? '',
   password: process.env.DB_PASSWORD ?? '',
   database: process.env.DB_DATABASE ?? '',
+  ssl:
+    process.env.DB_SSL === 'true'
+      ? {
+          rejectUnauthorized: false,
+        }
+      : undefined,
 };
 
-const JWT_SECRET =
-  process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
+const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
 
 const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440000'; // valid v4
 const WRONG_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440001';
@@ -75,13 +83,20 @@ async function cleanupProducts() {
 }
 
 async function cleanupOrders() {
-  await client.query(
-    'DELETE FROM orders WHERE product_id IN ($1, $2)',
-    [TIME_CAPSULE_PRODUCT_ID, WRONG_PRODUCT_ID],
-  );
+  await client.query('DELETE FROM orders WHERE product_id IN ($1, $2)', [
+    TIME_CAPSULE_PRODUCT_ID,
+    WRONG_PRODUCT_ID,
+  ]);
 }
 
-test.beforeAll(async ({ playwright }) => {
+async function setProductActive(productId: string, active: boolean) {
+  await client.query('UPDATE products SET is_active = $2 WHERE id = $1', [
+    productId,
+    active,
+  ]);
+}
+
+test.beforeAll(async () => {
   client = new Client(DB_CONFIG);
   await client.connect();
   api = await request.newContext({
@@ -200,4 +215,100 @@ test('product 미존재시 404', async () => {
 
   expect(res.status()).toBe(404);
   await cleanupUser(id);
+});
+
+test('주문 조회 200: 주문 + 상품 제약 반환', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+      add_music: true,
+      add_video: false,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const body = await createRes.json();
+  const orderId = body.order_id as string;
+
+  const getRes = await api.get(`/api/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (getRes.status() !== 200) {
+    console.error('GET /orders status', getRes.status(), await getRes.text());
+  }
+  expect(getRes.status()).toBe(200);
+  const detail = await getRes.json();
+  expect(detail.order.order_id).toBe(orderId);
+  expect(detail.order.headcount).toBe(2);
+  expect(detail.order.photo_count).toBe(1);
+  expect(detail.order.add_music).toBe(true);
+  expect(detail.order.add_video).toBe(false);
+  expect(detail.product.id).toBe(TIME_CAPSULE_PRODUCT_ID);
+  expect(detail.product.product_type).toBe('TIME_CAPSULE');
+
+  await cleanupUser(userId);
+});
+
+test('주문 조회 403: 소유자 아님', async () => {
+  await createProductTimeCapsule();
+  const { id: ownerId, token: ownerToken } = await createUser();
+  const { token: otherToken } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  const getRes = await api.get(`/api/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${otherToken}` },
+  });
+  if (getRes.status() !== 403) {
+    console.error(
+      'GET /orders (other user) status',
+      getRes.status(),
+      await getRes.text(),
+    );
+  }
+  expect(getRes.status()).toBe(403);
+
+  await cleanupUser(ownerId);
+});
+
+test('주문 조회 404: 상품 비활성', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  // 비활성 처리 후 조회 시 404
+  await setProductActive(TIME_CAPSULE_PRODUCT_ID, false);
+
+  const getRes = await api.get(`/api/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(getRes.status()).toBe(404);
+
+  await setProductActive(TIME_CAPSULE_PRODUCT_ID, true);
+  await cleanupUser(userId);
 });

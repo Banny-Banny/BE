@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -104,6 +105,55 @@ export class OrdersService {
       add_music: saved.addMusic,
       add_video: saved.addVideo,
       status: saved.status,
+    };
+  }
+
+  async findOne(user: User, id: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id },
+      relations: { product: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    if (order.userId !== user.id) {
+      throw new ForbiddenException('ORDER_NOT_OWNED');
+    }
+
+    const product = order.product;
+    if (
+      !product ||
+      !product.isActive ||
+      product.productType !== ProductType.TIME_CAPSULE
+    ) {
+      throw new NotFoundException('PRODUCT_NOT_FOUND_OR_INVALID');
+    }
+
+    return {
+      order: {
+        order_id: order.id,
+        status: order.status,
+        total_amount: order.totalAmount,
+        time_option: order.timeOption,
+        custom_open_at: order.customOpenAt,
+        headcount: order.headcount,
+        photo_count: order.photoCount,
+        add_music: order.addMusic,
+        add_video: order.addVideo,
+        created_at: order.createdAt,
+        updated_at: order.updatedAt,
+      },
+      product: {
+        id: product.id,
+        product_type: product.productType,
+        name: product.name,
+        price: product.price,
+        is_active: product.isActive,
+        max_media_count: product.maxMediaCount,
+        media_types: product.mediaTypes,
+      },
     };
   }
 }

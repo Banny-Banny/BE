@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -10,6 +10,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { GetOrderParamDto } from './dto/get-order.dto';
 
 @ApiTags('Orders')
 @ApiBearerAuth('access-token')
@@ -31,5 +32,51 @@ export class OrdersController {
   async create(@CurrentUser() user: User, @Body() dto: CreateOrderDto) {
     return this.ordersService.create(user, dto);
   }
-}
 
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '주문 상세 조회',
+    description:
+      '주문 옵션/금액/상태와 연관 상품 제약을 조회합니다. 주문자만 접근 가능.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    schema: {
+      example: {
+        order: {
+          order_id: 'uuid',
+          status: 'PENDING_PAYMENT',
+          total_amount: 3500,
+          time_option: '1_WEEK',
+          custom_open_at: null,
+          headcount: 3,
+          photo_count: 2,
+          add_music: true,
+          add_video: false,
+          created_at: '2025-12-19T01:23:45.000Z',
+          updated_at: '2025-12-19T01:23:45.000Z',
+        },
+        product: {
+          id: 'uuid',
+          product_type: 'TIME_CAPSULE',
+          name: '기본 타임캡슐',
+          price: 0,
+          is_active: true,
+          max_media_count: null,
+          media_types: null,
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 403, description: '주문 소유권 불일치' })
+  @ApiResponse({ status: 404, description: '주문/상품 미존재 또는 비활성' })
+  async findOne(
+    @CurrentUser() user: User,
+    @Param() params: GetOrderParamDto,
+  ): Promise<Awaited<ReturnType<OrdersService['findOne']>>> {
+    return await this.ordersService.findOne(user, params.id);
+  }
+}
