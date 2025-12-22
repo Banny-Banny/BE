@@ -58,7 +58,7 @@ export class AuthController {
 
     // 프론트엔드로 리다이렉트 (토큰 포함)
     // 실제 환경에서는 프론트엔드 URL로 변경 필요
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8081';
     const redirectUrl = `${frontendUrl}/auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}`;
 
     return res.redirect(HttpStatus.FOUND, redirectUrl);
