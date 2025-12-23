@@ -48,14 +48,32 @@ export class OrdersService {
     }
   }
 
-  private calculateAmount(dto: CreateOrderDto): number {
-    const basePrice = 1000; // 1주 옵션 기본가를 baseline으로 적용
-    const photoUnit = 500;
-    const musicPrice = dto.add_music ? dto.headcount * 1000 : 0; // 인원당 1개 가능
-    const videoPrice = dto.add_video ? dto.headcount * 2000 : 0; // 인원당 1개 가능
+  private calculateTimeOptionAmount(dto: CreateOrderDto): number {
+    const now = Date.now();
+    const baseWeek = 1000;
+    const baseYear = 5000;
+    const baseMonth = 3000; // 1개월 기본가 (정책에 맞게 조정 가능)
 
-    const photoPrice = (dto.photo_count ?? 0) * photoUnit;
-    return basePrice + photoPrice + musicPrice + videoPrice;
+    switch (dto.time_option) {
+      case TimeOption.ONE_WEEK:
+        return baseWeek;
+      case TimeOption.ONE_MONTH:
+        return baseMonth;
+      case TimeOption.ONE_YEAR:
+        return baseYear;
+      case TimeOption.CUSTOM: {
+        const openAt = new Date(dto.custom_open_at!);
+        const ms = openAt.getTime() - now;
+        const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
+        // 연 단가를 기준으로 기간 비례 산정, 최소 1주 요금 보장
+        const months = Math.max(1, Math.ceil(days / 30));
+        const perMonth = baseYear / 12;
+        const dynamicAmount = Math.ceil(months * perMonth);
+        return Math.max(baseWeek, dynamicAmount);
+      }
+      default:
+        return baseWeek;
+    }
   }
 
   async create(user: User, dto: CreateOrderDto) {
@@ -69,10 +87,12 @@ export class OrdersService {
     }
 
     const baseAmount = 1000;
+    const timeOptionAmount = this.calculateTimeOptionAmount(dto);
     const photoAmount = (dto.photo_count ?? 0) * 500;
     const musicAmount = dto.add_music ? dto.headcount * 1000 : 0;
     const videoAmount = dto.add_video ? dto.headcount * 2000 : 0;
-    const totalAmount = baseAmount + photoAmount + musicAmount + videoAmount;
+    const totalAmount =
+      baseAmount + timeOptionAmount + photoAmount + musicAmount + videoAmount;
 
     const order = this.orderRepository.create({
       userId: user.id,
@@ -95,6 +115,7 @@ export class OrdersService {
       order_id: saved.id,
       total_amount: saved.totalAmount,
       base_amount: baseAmount,
+      time_option_amount: timeOptionAmount,
       photo_amount: photoAmount,
       music_amount: musicAmount,
       video_amount: videoAmount,
