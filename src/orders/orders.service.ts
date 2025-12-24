@@ -31,9 +31,8 @@ export class OrdersService {
     if (photoCount < 0) {
       throw new BadRequestException('PHOTO_COUNT_NEGATIVE');
     }
-    // 사진 개수는 1인당 최대 5장까지 허용 (총합은 headcount*5)
-    const maxPhotos = headcount * 5;
-    if (photoCount > maxPhotos) {
+    // 이미지(사진) 개수는 최대 10장까지 허용
+    if (photoCount > 10) {
       throw new BadRequestException('PHOTO_COUNT_EXCEEDS_LIMIT');
     }
 
@@ -54,9 +53,13 @@ export class OrdersService {
 
   private calculateTimeOptionAmount(dto: CreateOrderDto): number {
     const now = Date.now();
-    const week = 1000; // 1주
-    const month = 3000; // 1달
+    const week = 1000; // 1주일
+    const month = 5000; // 1개월
     const year = 10000; // 1년
+    const twoYear = 20000; // 2년
+    const threeYear = 30000; // 3년
+    const maxStorageYears = 5;
+    const maxStorageDays = maxStorageYears * 365;
 
     switch (dto.time_option) {
       case TimeOption.ONE_WEEK:
@@ -65,10 +68,17 @@ export class OrdersService {
         return month;
       case TimeOption.ONE_YEAR:
         return year;
+      case TimeOption.TWO_YEAR:
+        return twoYear;
+      case TimeOption.THREE_YEAR:
+        return threeYear;
       case TimeOption.CUSTOM: {
         const openAt = new Date(dto.custom_open_at!);
         const ms = openAt.getTime() - now;
         const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
+        if (days > maxStorageDays) {
+          throw new BadRequestException('STORAGE_PERIOD_EXCEEDED');
+        }
         // 연 단가(10,000원)를 일 단가로 환산 후 비례, 최소 1주 요금 보장, 100원 단위 반올림
         const perDay = year / 365;
         const dynamic = this.roundToHundred(perDay * days);
@@ -89,20 +99,14 @@ export class OrdersService {
       throw new NotFoundException('PRODUCT_NOT_FOUND_OR_INVALID');
     }
 
-    // 1인 기준 단가 계산
-    const baseAmountPerPerson = 1000; // 기본 옵션
-    const timeOptionAmountPerPerson = this.calculateTimeOptionAmount(dto); // 기간별 요금
-    const photoAmountPerPerson = (dto.photo_count ?? 0) * 500; // 사진 1장당 500원, 최대 5장
-    const musicAmountPerPerson = dto.add_music ? 1000 : 0; // 최대 1개
-    const videoAmountPerPerson = dto.add_video ? 2000 : 0; // 최대 1개
+    // 금액 계산 (주문 단위)
+    const timeOptionAmount = this.calculateTimeOptionAmount(dto); // 기간별 요금
+    const imageAmount = (dto.photo_count ?? 0) * 500; // 이미지 1장당 500원, 최대 10장
+    const audioAmount = dto.add_music ? 1000 : 0; // 오디오 1개
+    const videoAmount = dto.add_video ? 2000 : 0; // 영상 1개
 
-    const perPersonAmount =
-      baseAmountPerPerson +
-      timeOptionAmountPerPerson +
-      photoAmountPerPerson +
-      musicAmountPerPerson +
-      videoAmountPerPerson;
-    const totalAmount = perPersonAmount * dto.headcount;
+    const totalAmount =
+      timeOptionAmount + imageAmount + audioAmount + videoAmount;
 
     const order = this.orderRepository.create({
       userId: user.id,
@@ -124,12 +128,10 @@ export class OrdersService {
     return {
       order_id: saved.id,
       total_amount: saved.totalAmount,
-      base_amount_per_person: baseAmountPerPerson,
-      time_option_amount_per_person: timeOptionAmountPerPerson,
-      photo_amount_per_person: photoAmountPerPerson,
-      music_amount_per_person: musicAmountPerPerson,
-      video_amount_per_person: videoAmountPerPerson,
-      per_person_amount: perPersonAmount,
+      time_option_amount: timeOptionAmount,
+      image_amount: imageAmount,
+      audio_amount: audioAmount,
+      video_amount: videoAmount,
       time_option: saved.timeOption,
       custom_open_at: saved.customOpenAt,
       headcount: saved.headcount,

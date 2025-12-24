@@ -132,15 +132,13 @@ test('주문 생성 201: 옵션/금액 계산', async () => {
   }
   expect(res.status()).toBe(201);
   const body = await res.json();
-  // per-person: base 1000 + time 1000 + photo(4*500=2000) + music 1000 = 5000
-  expect(body.total_amount).toBe(5000 * 2);
-  // 세부 금액 검증 (per-person breakdown)
-  expect(body.base_amount_per_person).toBe(1000);
-  expect(body.time_option_amount_per_person).toBe(1000);
-  expect(body.photo_amount_per_person).toBe(2000);
-  expect(body.music_amount_per_person).toBe(1000);
-  expect(body.video_amount_per_person).toBe(0);
-  expect(body.per_person_amount).toBe(5000);
+  // total: time(1주=1000) + image(4*500=2000) + audio(1000) = 4000
+  expect(body.total_amount).toBe(4000);
+  // 세부 금액 검증
+  expect(body.time_option_amount).toBe(1000);
+  expect(body.image_amount).toBe(2000);
+  expect(body.audio_amount).toBe(1000);
+  expect(body.video_amount).toBe(0);
   expect(body.status).toBe('PENDING_PAYMENT');
   expect(body.headcount).toBe(2);
   expect(body.photo_count).toBe(4);

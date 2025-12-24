@@ -28,6 +28,8 @@ export enum TimeOption {
   ONE_WEEK = '1_WEEK',
   ONE_MONTH = '1_MONTH',
   ONE_YEAR = '1_YEAR',
+  TWO_YEAR = '2_YEAR',
+  THREE_YEAR = '3_YEAR',
   CUSTOM = 'CUSTOM',
 }
 
