@@ -20,7 +20,8 @@ import { randomUUID } from 'crypto';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const VIDEO_TYPES = ['video/mp4'];
-const AUDIO_TYPES = ['audio/mpeg', 'audio/aac'];
+// MP3, M4A(AAC 컨테이너) 허용
+const AUDIO_TYPES = ['audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'];
 const IMAGE_MAX = 5 * 1024 * 1024; // 5MB
 const VIDEO_MAX = 200 * 1024 * 1024; // 200MB
 const AUDIO_MAX = 20 * 1024 * 1024; // 20MB
