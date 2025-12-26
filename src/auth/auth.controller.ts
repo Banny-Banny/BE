@@ -24,53 +24,6 @@ interface KakaoRequest extends Request {
   user: TokenResponse;
 }
 
-const DEFAULT_MOBILE_CALLBACK_URL =
-  process.env.AUTH_CALLBACK_REDIRECT_URL || 'timeegg://auth/callback';
-const DEFAULT_WEB_LOGIN_URL =
-  process.env.KAKAO_CALLBACK_URL ||
-  'https://be-production-8aa2.up.railway.app/api/auth/kakao/callback';
-const DEFAULT_EXPO_CALLBACK_URL =
-  process.env.EXPO_AUTH_CALLBACK_REDIRECT_URL ||
-  'exp://172.16.2.145:8081/--/auth/callback';
-const MOBILE_APP_USER_AGENT_KEYWORD = 'timeegg';
-const EXPO_USER_AGENT_KEYWORD = 'expo';
-
-function normalizeUserAgent(userAgent?: string | string[]): string {
-  if (!userAgent) {
-    return '';
-  }
-  return Array.isArray(userAgent) ? userAgent.join(' ') : userAgent;
-}
-function isMobileApp(userAgent?: string | string[]): boolean {
-  const normalized = normalizeUserAgent(userAgent).toLowerCase();
-  return normalized.includes(MOBILE_APP_USER_AGENT_KEYWORD);
-}
-
-function isExpoApp(userAgent?: string | string[]): boolean {
-  const normalized = normalizeUserAgent(userAgent).toLowerCase();
-  return normalized.includes(EXPO_USER_AGENT_KEYWORD);
-}
-
-function composeCallbackUrl(
-  baseUrl: string,
-  token: string,
-  isNewUser: boolean,
-): string {
-  const params = new URLSearchParams({
-    token,
-    isNewUser: String(isNewUser),
-  });
-
-  try {
-    const url = new URL(baseUrl);
-    params.forEach((value, key) => url.searchParams.set(key, value));
-    return url.toString();
-  } catch {
-    const separator = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${separator}${params.toString()}`;
-  }
-}
-
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
@@ -103,17 +56,25 @@ export class AuthController {
   kakaoCallback(@Req() req: KakaoRequest, @Res() res: Response) {
     const { accessToken, user } = req.user;
 
-    const userAgent = req.headers['user-agent'];
-    const baseUrl = isExpoApp(userAgent)
-      ? DEFAULT_EXPO_CALLBACK_URL
-      : isMobileApp(userAgent)
-        ? DEFAULT_MOBILE_CALLBACK_URL
-        : DEFAULT_WEB_LOGIN_URL;
-    const redirectUrl = composeCallbackUrl(
-      baseUrl,
-      accessToken,
-      user.isNewUser,
-    );
+    // 클라이언트 콜백 URL (웹/앱 딥링크 모두 지원)
+    // - AUTH_CALLBACK_REDIRECT_URL: 전체 콜백 URL (예: myapp://auth/callback)
+    // - FRONTEND_URL: 기본 웹 URL (예: https://example.com), 필요 시 /auth/callback을 붙여 사용
+    const fallbackBase = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const clientCallback =
+      process.env.AUTH_CALLBACK_REDIRECT_URL ||
+      `${fallbackBase.replace(/\/$/, '')}timeegg://auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}`;
+
+    // URL 객체가 지원되지 않는 스킴 대비하여 안전하게 구성
+    let redirectUrl = clientCallback;
+    try {
+      const url = new URL(clientCallback);
+      url.searchParams.set('token', accessToken);
+      url.searchParams.set('isNewUser', String(user.isNewUser));
+      redirectUrl = url.toString();
+    } catch {
+      const separator = clientCallback.includes('?') ? '&' : '?';
+      redirectUrl = `${clientCallback}${separator}token=${accessToken}&isNewUser=${user.isNewUser}`;
+    }
 
     return res.redirect(HttpStatus.FOUND, redirectUrl);
   }
