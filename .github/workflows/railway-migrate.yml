@@ -8,7 +8,13 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     env:
+      DATABASE_PUBLIC_URL: ${{ secrets.RAILWAY_DATABASE_PUBLIC_URL }}
       DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,5 +24,5 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Run TypeORM migrations (Supabase direct)
+      - name: Run TypeORM migrations (Railway direct)
         run: npm run migration:run
