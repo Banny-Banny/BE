@@ -57,23 +57,29 @@ export class AuthController {
     const { accessToken, user } = req.user;
 
     // 클라이언트 콜백 URL (웹/앱 딥링크 모두 지원)
-    // - AUTH_CALLBACK_REDIRECT_URL: 전체 콜백 URL (예: myapp://auth/callback)
-    // - FRONTEND_URL: 기본 웹 URL (예: https://example.com), 필요 시 /auth/callback을 붙여 사용
-    const fallbackBase = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // - AUTH_CALLBACK_REDIRECT_URL: 앱 딥링크 (예: timeegg://auth/callback)
+    // - FRONTEND_URL: 웹 도메인 (예: https://example.com), 기본 경로는 /auth/callback
+    const fallbackBase = process.env.FRONTEND_URL || 'http://localhost:8081';
+    const fallbackPath = process.env.FRONTEND_CALLBACK_PATH || '/auth/callback';
+    const webCallback = `${fallbackBase.replace(/\/$/, '')}${fallbackPath}`;
     const clientCallback =
-      process.env.AUTH_CALLBACK_REDIRECT_URL ||
-      `${fallbackBase.replace(/\/$/, '')}timeegg://auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}`;
+      process.env.AUTH_CALLBACK_REDIRECT_URL || webCallback;
 
-    // URL 객체가 지원되지 않는 스킴 대비하여 안전하게 구성
+    const queryParams = new URLSearchParams({
+      token: accessToken,
+      isNewUser: String(user.isNewUser),
+    });
+
     let redirectUrl = clientCallback;
     try {
       const url = new URL(clientCallback);
-      url.searchParams.set('token', accessToken);
-      url.searchParams.set('isNewUser', String(user.isNewUser));
+      queryParams.forEach((value, key) => {
+        url.searchParams.set(key, value);
+      });
       redirectUrl = url.toString();
     } catch {
       const separator = clientCallback.includes('?') ? '&' : '?';
-      redirectUrl = `${clientCallback}${separator}token=${accessToken}&isNewUser=${user.isNewUser}`;
+      redirectUrl = `${clientCallback}${separator}${queryParams.toString()}`;
     }
 
     return res.redirect(HttpStatus.FOUND, redirectUrl);
