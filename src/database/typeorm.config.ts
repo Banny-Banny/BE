@@ -64,7 +64,8 @@ const dataSource = new DataSource({
     CustomerService,
     Media,
   ],
-  migrations: ['dist/migrations/*.js'],
+  // ts-node로 CLI 실행 시 TypeScript 마이그레이션을 직접 로드한다.
+  migrations: ['src/migrations/*.ts'],
   synchronize: false,
   logging: true,
 });
