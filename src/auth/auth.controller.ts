@@ -14,7 +14,7 @@ import {
   ApiBearerAuth,
   ApiExcludeEndpoint,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { TokenResponse } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -56,10 +56,25 @@ export class AuthController {
   kakaoCallback(@Req() req: KakaoRequest, @Res() res: Response) {
     const { accessToken, user } = req.user;
 
-    // 프론트엔드로 리다이렉트 (토큰 포함)
-    // 실제 환경에서는 프론트엔드 URL로 변경 필요
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const redirectUrl = `${frontendUrl}/auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}`;
+    // 클라이언트 콜백 URL (웹/앱 딥링크 모두 지원)
+    // - AUTH_CALLBACK_REDIRECT_URL: 전체 콜백 URL (예: myapp://auth/callback)
+    // - FRONTEND_URL: 기본 웹 URL (예: https://example.com), 필요 시 /auth/callback을 붙여 사용
+    const fallbackBase = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const clientCallback =
+      process.env.AUTH_CALLBACK_REDIRECT_URL ||
+      `${fallbackBase.replace(/\/$/, '')}/auth/callback`;
+
+    // URL 객체가 지원되지 않는 스킴 대비하여 안전하게 구성
+    let redirectUrl = clientCallback;
+    try {
+      const url = new URL(clientCallback);
+      url.searchParams.set('token', accessToken);
+      url.searchParams.set('isNewUser', String(user.isNewUser));
+      redirectUrl = url.toString();
+    } catch {
+      const separator = clientCallback.includes('?') ? '&' : '?';
+      redirectUrl = `${clientCallback}${separator}token=${accessToken}&isNewUser=${user.isNewUser}`;
+    }
 
     return res.redirect(HttpStatus.FOUND, redirectUrl);
   }
