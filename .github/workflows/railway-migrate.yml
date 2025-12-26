@@ -8,8 +8,8 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     env:
-      DATABASE_PUBLIC_URL: ${{ secrets.RAILWAY_DATABASE_PUBLIC_URL }}
-      DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+      DATABASE_PUBLIC_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       PGHOST: ${{ secrets.PGHOST }}
       PGPORT: ${{ secrets.PGPORT }}
       PGUSER: ${{ secrets.PGUSER }}
