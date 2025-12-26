@@ -8,6 +8,7 @@ import {
   CapsuleAccessLog,
   Order,
   Payment,
+  PaymentCancel,
   Friendship,
   CustomerService,
   Media,
@@ -19,7 +20,14 @@ import {
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService): TypeOrmModuleOptions => {
-        const databaseUrl = configService.get<string>('DATABASE_URL');
+        const isTestDb =
+          configService.get<string>('NODE_ENV') === 'test' ||
+          configService.get<string>('PLAYWRIGHT') === 'true' ||
+          !!configService.get<string>('TEST_DB_HOST');
+
+        const databaseUrl =
+          configService.get<string>('DATABASE_PUBLIC_URL') ??
+          (!isTestDb ? configService.get<string>('DATABASE_URL') : undefined);
         const isDev = configService.get<string>('NODE_ENV') === 'development';
 
         const entities = [
@@ -29,6 +37,7 @@ import {
           CapsuleAccessLog,
           Order,
           Payment,
+          PaymentCancel,
           Friendship,
           CustomerService,
           Media,
@@ -40,31 +49,58 @@ import {
           connectionTimeoutMillis: 2000,
         };
 
-        const pgHost =
-          configService.get<string>('DB_HOST') ||
-          configService.get<string>('PG_HOST') ||
-          'localhost';
+        const pgHost = isTestDb
+          ? (configService.get<string>('TEST_DB_HOST') ?? 'localhost')
+          : configService.get<string>('PGHOST');
         const pgPort = Number(
-          configService.get<string>('DB_PORT') ||
-            configService.get<string>('PG_PORT') ||
-            '5432',
+          isTestDb
+            ? (configService.get<string>('TEST_DB_PORT') ?? '5432')
+            : configService.get<string>('PGPORT'),
         );
-        const pgUser =
-          configService.get<string>('DB_USERNAME') ||
-          configService.get<string>('PG_USER') ||
-          'postgres';
-        const pgPassword =
-          configService.get<string>('DB_PASSWORD') ||
-          configService.get<string>('PG_PASSWORD') ||
-          '';
-        const pgDatabase =
-          configService.get<string>('DB_DATABASE') ||
-          configService.get<string>('PG_DATABASE') ||
-          'banny_banny';
+        const pgUser = isTestDb
+          ? (configService.get<string>('TEST_DB_USERNAME') ?? 'postgres')
+          : configService.get<string>('PGUSER');
+        const pgPassword = isTestDb
+          ? (configService.get<string>('TEST_DB_PASSWORD') ?? '')
+          : configService.get<string>('PGPASSWORD');
+        const pgDatabase = isTestDb
+          ? (configService.get<string>('TEST_DB_DATABASE') ?? 'banny_banny')
+          : configService.get<string>('PGDATABASE');
         const sslEnabled =
-          configService.get<string>('DB_SSL') === 'true' ||
-          (configService.get<string>('PGSSLMODE') ?? '').toLowerCase() !==
-            'disable';
+          !isTestDb &&
+          (configService.get<string>('DB_SSL') === 'true' ||
+            (configService.get<string>('PGSSLMODE') ?? '').toLowerCase() !==
+              'disable');
+
+        if (!databaseUrl) {
+          const requiredPg = isTestDb
+            ? [
+                ['TEST_DB_HOST', configService.get<string>('TEST_DB_HOST')],
+                ['TEST_DB_PORT', configService.get<string>('TEST_DB_PORT')],
+                [
+                  'TEST_DB_USERNAME',
+                  configService.get<string>('TEST_DB_USERNAME'),
+                ],
+                [
+                  'TEST_DB_DATABASE',
+                  configService.get<string>('TEST_DB_DATABASE'),
+                ],
+              ]
+            : [
+                ['PGHOST', configService.get<string>('PGHOST')],
+                ['PGPORT', configService.get<string>('PGPORT')],
+                ['PGUSER', configService.get<string>('PGUSER')],
+                ['PGDATABASE', configService.get<string>('PGDATABASE')],
+              ];
+          const missing = requiredPg.filter(([, value]) => !value);
+          if (missing.length) {
+            throw new Error(
+              `Missing required PostgreSQL env vars: ${missing
+                .map(([key]) => key)
+                .join(', ')}`,
+            );
+          }
+        }
 
         const options: TypeOrmModuleOptions = databaseUrl
           ? {
@@ -79,11 +115,11 @@ import {
             }
           : {
               type: 'postgres',
-              host: pgHost,
+              host: pgHost as string,
               port: pgPort,
-              username: pgUser,
-              password: pgPassword,
-              database: pgDatabase,
+              username: pgUser as string,
+              password: pgPassword ?? '',
+              database: pgDatabase as string,
               ssl: sslEnabled ? { rejectUnauthorized: false } : undefined,
               uuidExtension: 'pgcrypto',
               entities,

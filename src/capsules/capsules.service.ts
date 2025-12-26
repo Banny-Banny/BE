@@ -11,12 +11,12 @@ import { Capsule } from '../entities/capsule.entity';
 import { User } from '../entities/user.entity';
 import { Product, ProductType } from '../entities/product.entity';
 import { Friendship } from '../entities/friendship.entity';
-import { FriendStatus } from '../common/enums';
+import { FriendStatus, OrderStatus, TimeOption } from '../common/enums';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { MediaType } from '../common/enums';
 import { GetCapsuleQueryDto } from './dto/get-capsule.dto';
 import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
-import { Media } from '../entities';
+import { Media, Order } from '../entities';
 
 @Injectable()
 export class CapsulesService {
@@ -35,6 +35,8 @@ export class CapsulesService {
     private readonly friendshipRepository: Repository<Friendship>,
     @InjectRepository(Media)
     private readonly mediaRepository: Repository<Media>,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -242,6 +244,38 @@ export class CapsulesService {
   private buildDistanceExpr(lat: number, lng: number) {
     // Haversine formula in meters
     return `6371000 * 2 * ASIN(SQRT(POWER(SIN(RADIANS((capsule.latitude - ${lat}) / 2)), 2) + COS(RADIANS(${lat})) * COS(RADIANS(capsule.latitude)) * POWER(SIN(RADIANS((capsule.longitude - ${lng}) / 2)), 2)))`;
+  }
+
+  private computeOpenAtFromTimeOption(
+    timeOption: TimeOption,
+    customOpenAt: Date | null,
+  ): Date {
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    switch (timeOption) {
+      case TimeOption.ONE_WEEK:
+        return new Date(now.getTime() + 7 * dayMs);
+      case TimeOption.ONE_MONTH:
+        return new Date(now.getTime() + 30 * dayMs);
+      case TimeOption.ONE_YEAR:
+        return new Date(now.getTime() + 365 * dayMs);
+      case TimeOption.TWO_YEAR:
+        return new Date(now.getTime() + 730 * dayMs);
+      case TimeOption.THREE_YEAR:
+        return new Date(now.getTime() + 1095 * dayMs);
+      case TimeOption.CUSTOM: {
+        if (!customOpenAt) {
+          throw new BadRequestException('CUSTOM_OPEN_AT_REQUIRED');
+        }
+        const parsed = new Date(customOpenAt);
+        if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+          throw new BadRequestException('CUSTOM_OPEN_AT_INVALID');
+        }
+        return parsed;
+      }
+      default:
+        throw new BadRequestException('TIME_OPTION_NOT_SUPPORTED');
+    }
   }
 
   async create(user: User, dto: CreateCapsuleDto): Promise<Capsule> {
@@ -525,5 +559,98 @@ export class CapsulesService {
       items,
       page_info: null,
     };
+  }
+
+  async createFromPaidOrder(orderId: string): Promise<Capsule> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: { product: true, capsule: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    if (order.status !== OrderStatus.PAID) {
+      throw new BadRequestException('ORDER_NOT_PAID');
+    }
+
+    if (
+      !order.product ||
+      !order.product.isActive ||
+      order.product.productType !== ProductType.TIME_CAPSULE
+    ) {
+      throw new NotFoundException('PRODUCT_NOT_FOUND_OR_INVALID');
+    }
+
+    if (order.headcount < 1 || order.headcount > 10) {
+      throw new BadRequestException('HEADCOUNT_OUT_OF_RANGE');
+    }
+
+    if (order.capsule && order.capsule.orderId === order.id) {
+      return order.capsule;
+    }
+
+    const openAt = this.computeOpenAtFromTimeOption(
+      order.timeOption,
+      order.customOpenAt,
+    );
+
+    const product = order.product;
+    const requestedMediaCount =
+      (order.photoCount ?? 0) + (order.addMusic ? 1 : 0) + (order.addVideo ? 1 : 0);
+
+    if (product.maxMediaCount !== null && product.maxMediaCount !== undefined) {
+      if (requestedMediaCount > product.maxMediaCount) {
+        throw new BadRequestException('MEDIA_COUNT_EXCEEDS_PRODUCT_LIMIT');
+      }
+    }
+
+    if (product.mediaTypes && product.mediaTypes.length > 0) {
+      const requiredTypes: MediaType[] = [];
+      if (order.photoCount > 0) {
+        requiredTypes.push(MediaType.IMAGE);
+      }
+      if (order.addVideo) {
+        requiredTypes.push(MediaType.VIDEO);
+      }
+      if (order.addMusic) {
+        requiredTypes.push(MediaType.AUDIO);
+      }
+      requiredTypes.forEach((t) => {
+        if (!product.mediaTypes!.includes(t)) {
+          throw new BadRequestException('MEDIA_TYPE_NOT_ALLOWED_FOR_PRODUCT');
+        }
+      });
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(Capsule);
+      const existing = await repo.findOne({ where: { orderId: order.id } });
+      if (existing) {
+        return existing;
+      }
+
+      const capsule = repo.create({
+        userId: order.userId,
+        productId: order.productId,
+        orderId: order.id,
+        latitude: null,
+        longitude: null,
+        title: 'My Time Capsule',
+        content: null,
+        mediaUrls: null,
+        mediaItemIds: null,
+        mediaTypes: null,
+        textBlocks: null,
+        openAt,
+        isLocked: true,
+        viewLimit: order.headcount,
+        viewCount: 0,
+      });
+
+      const saved = await repo.save(capsule);
+      return saved;
+    });
   }
 }

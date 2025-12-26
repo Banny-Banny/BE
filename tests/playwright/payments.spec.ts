@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import 'reflect-metadata';
 import { test, expect, request, APIRequestContext } from '@playwright/test';
 import { Client } from 'pg';
@@ -12,8 +15,7 @@ const DB_CONFIG = {
   database: process.env.DB_DATABASE ?? '',
 };
 
-const JWT_SECRET =
-  process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
+const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
 
 const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440100';
 
@@ -63,6 +65,9 @@ async function cleanupProducts() {
 
 async function cleanupOrdersAndPayments() {
   await client.query(
+    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders)',
+  );
+  await client.query(
     'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
   );
   await client.query('DELETE FROM orders');
@@ -94,7 +99,7 @@ async function createOrder(token: string) {
   return body.order_id as string;
 }
 
-test.beforeAll(async ({ playwright }) => {
+test.beforeAll(async () => {
   client = new Client(DB_CONFIG);
   await client.connect();
   api = await request.newContext({
@@ -137,6 +142,39 @@ test('카카오페이 ready → approve 성공 (mock)', async () => {
   await cleanupUser(id);
 });
 
+test('결제 승인 시 캡슐이 1개 생성되고 주문에 연결된다', async () => {
+  await createProductTimeCapsule();
+  const { id, token } = await createUser();
+  const orderId = await createOrder(token);
+
+  const readyRes = await api.post('/api/payments/kakao/ready', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { order_id: orderId },
+  });
+  expect(readyRes.status()).toBe(201);
+
+  const approveRes = await api.post('/api/payments/kakao/approve', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
+  });
+  expect(approveRes.status()).toBe(201);
+  const approveBody = await approveRes.json();
+  expect(approveBody.capsule_id).toBeTruthy();
+
+  const capsuleRes = await client.query(
+    'SELECT id, order_id, product_id, user_id, view_limit FROM capsules WHERE order_id = $1',
+    [orderId],
+  );
+  expect(capsuleRes.rowCount).toBe(1);
+  const row = capsuleRes.rows[0];
+  expect(row.order_id).toBe(orderId);
+  expect(row.product_id).toBe(TIME_CAPSULE_PRODUCT_ID);
+  expect(row.user_id).toBe(id);
+  expect(row.view_limit).toBe(2);
+
+  await cleanupUser(id);
+});
+
 test('타인 주문으로 ready 시 401', async () => {
   await createProductTimeCapsule();
   const owner = await createUser();
@@ -153,4 +191,3 @@ test('타인 주문으로 ready 시 401', async () => {
   await cleanupUser(owner.id);
   await cleanupUser(other.id);
 });
-

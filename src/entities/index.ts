@@ -4,6 +4,7 @@ export * from './capsule.entity';
 export * from './capsule-access-log.entity';
 export * from './order.entity';
 export * from './payment.entity';
+export * from './payment-cancel.entity';
 export * from './friendship.entity';
 export * from './customer-service.entity';
 export * from './media.entity';

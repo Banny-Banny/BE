@@ -7,12 +7,14 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
+  OneToOne,
   Check,
 } from 'typeorm';
 import { MediaType } from '../common/enums';
 import { User } from './user.entity';
 import { Product } from './product.entity';
 import { CapsuleAccessLog } from './capsule-access-log.entity';
+import { Order } from './order.entity';
 
 /**
  * 서비스의 핵심 테이블
@@ -36,6 +38,15 @@ export class Capsule {
     comment: '유료 스킨/기능 사용 시 연결, 무료면 NULL',
   })
   productId: string | null;
+
+  @Column({
+    type: 'uuid',
+    name: 'order_id',
+    nullable: true,
+    unique: true,
+    comment: '결제 주문 연계 (주문당 1캡슐)',
+  })
+  orderId: string | null;
 
   // 위치 정보
   @Column({
@@ -163,6 +174,10 @@ export class Capsule {
   })
   @JoinColumn({ name: 'product_id' })
   product: Product;
+
+  @OneToOne(() => Order, (order) => order.capsule, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'order_id' })
+  order: Order | null;
 
   @OneToMany(() => CapsuleAccessLog, (log) => log.capsule)
   accessLogs: CapsuleAccessLog[];

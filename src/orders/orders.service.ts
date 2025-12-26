@@ -145,7 +145,7 @@ export class OrdersService {
   async findOne(user: User, id: string) {
     const order = await this.orderRepository.findOne({
       where: { id },
-      relations: { product: true },
+      relations: { product: true, capsule: true },
     });
 
     if (!order) {
@@ -168,6 +168,7 @@ export class OrdersService {
     return {
       order: {
         order_id: order.id,
+        capsule_id: order.capsule ? order.capsule.id : null,
         status: order.status,
         total_amount: order.totalAmount,
         time_option: order.timeOption,

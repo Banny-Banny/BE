@@ -7,6 +7,7 @@ import {
   CapsuleAccessLog,
   Order,
   Payment,
+  PaymentCancel,
   Friendship,
   CustomerService,
   Media,
@@ -14,10 +15,22 @@ import {
 
 /**
  * TypeORM DataSource for CLI migrations.
- * - Uses DATABASE_URL when provided (recommended for Railway), otherwise falls back to discrete env vars.
- * - uuidExtension=pgcrypto for gen_random_uuid().
+ * - DATABASE_URL이 있으면 우선 사용.
+ * - 없으면 PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE 사용.
+ * - 필수 PG 환경변수가 없으면 바로 에러를 던져 잘못된 기본값 접속을 방지.
  */
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_PUBLIC_URL;
+const usePgEnv = !databaseUrl;
+
+if (usePgEnv) {
+  const requiredPgEnv = ['PGHOST', 'PGPORT', 'PGUSER', 'PGDATABASE'];
+  const missing = requiredPgEnv.filter((key) => !process.env[key]);
+  if (missing.length) {
+    throw new Error(
+      `Missing required PostgreSQL env vars: ${missing.join(', ')}`,
+    );
+  }
+}
 
 const dataSource = new DataSource({
   type: 'postgres',
@@ -27,11 +40,11 @@ const dataSource = new DataSource({
         ssl: { rejectUnauthorized: false },
       }
     : {
-        host: process.env.DB_HOST || process.env.PG_HOST || 'localhost',
-        port: parseInt(process.env.DB_PORT || process.env.PG_PORT || '5432', 10),
-        username: process.env.DB_USERNAME || process.env.PG_USER || 'postgres',
-        password: process.env.DB_PASSWORD || process.env.PG_PASSWORD || '',
-        database: process.env.DB_DATABASE || process.env.PG_DATABASE || 'banny_banny',
+        host: process.env.PGHOST as string,
+        port: parseInt(process.env.PGPORT as string, 10),
+        username: process.env.PGUSER as string,
+        password: process.env.PGPASSWORD ?? '',
+        database: process.env.PGDATABASE as string,
         ssl:
           process.env.DB_SSL === 'true' ||
           (process.env.PGSSLMODE && process.env.PGSSLMODE !== 'disable')
@@ -46,6 +59,7 @@ const dataSource = new DataSource({
     CapsuleAccessLog,
     Order,
     Payment,
+    PaymentCancel,
     Friendship,
     CustomerService,
     Media,
