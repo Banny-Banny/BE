@@ -27,7 +27,7 @@ interface KakaoRequest extends Request {
 const DEFAULT_MOBILE_CALLBACK_URL =
   process.env.AUTH_CALLBACK_REDIRECT_URL || 'timeegg://auth/callback';
 const DEFAULT_WEB_LOGIN_URL =
-  process.env.FRONTEND_URL ||
+  process.env.KAKAO_CALLBACK_URL ||
   'https://be-production-8aa2.up.railway.app/api/auth/kakao/callback';
 const MOBILE_APP_USER_AGENT_KEYWORD = 'timeegg';
 
