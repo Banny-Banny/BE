@@ -16,7 +16,8 @@ const DB_CONFIG = {
   host: process.env.TEST_DB_HOST ?? process.env.DB_HOST ?? 'localhost',
   port: Number(process.env.TEST_DB_PORT ?? process.env.DB_PORT ?? 5432),
   user: process.env.TEST_DB_USERNAME ?? process.env.DB_USERNAME ?? 'postgres',
-  password: process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? 'postgres',
+  password:
+    process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? 'postgres',
   // PGDATABASE(로컬 OS 계정명)로 잘못 붙는 것을 방지하기 위해 명시적 기본값 사용
   database:
     process.env.TEST_DB_DATABASE ??
