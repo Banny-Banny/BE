@@ -14,6 +14,8 @@ import { MediaType } from '../common/enums';
 import { User } from './user.entity';
 import { Product } from './product.entity';
 import { CapsuleAccessLog } from './capsule-access-log.entity';
+import { CapsuleParticipantSlot } from './capsule-participant-slot.entity';
+import { CapsuleEntry } from './capsule-entry.entity';
 import { Order } from './order.entity';
 
 /**
@@ -181,4 +183,10 @@ export class Capsule {
 
   @OneToMany(() => CapsuleAccessLog, (log) => log.capsule)
   accessLogs: CapsuleAccessLog[];
+
+  @OneToMany(() => CapsuleParticipantSlot, (slot) => slot.capsule)
+  participantSlots: CapsuleParticipantSlot[];
+
+  @OneToMany(() => CapsuleEntry, (entry) => entry.capsule)
+  entries: CapsuleEntry[];
 }

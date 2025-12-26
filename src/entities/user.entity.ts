@@ -13,6 +13,8 @@ import { Friendship } from './friendship.entity';
 import { CapsuleAccessLog } from './capsule-access-log.entity';
 import { CustomerService } from './customer-service.entity';
 import { Media } from './media.entity';
+import { CapsuleParticipantSlot } from './capsule-participant-slot.entity';
+import { CapsuleEntry } from './capsule-entry.entity';
 
 /**
  * 사용자 기본 정보
@@ -148,4 +150,10 @@ export class User {
 
   @OneToMany(() => Media, (media) => media.user)
   media: Media[];
+
+  @OneToMany(() => CapsuleParticipantSlot, (slot) => slot.user)
+  participantSlots: CapsuleParticipantSlot[];
+
+  @OneToMany(() => CapsuleEntry, (entry) => entry.user)
+  entries: CapsuleEntry[];
 }

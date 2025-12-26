@@ -16,7 +16,14 @@ import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { MediaType } from '../common/enums';
 import { GetCapsuleQueryDto } from './dto/get-capsule.dto';
 import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
-import { Media, Order } from '../entities';
+import {
+  CapsuleAccessLog,
+  CapsuleEntry,
+  CapsuleParticipantSlot,
+  Media,
+  Order,
+} from '../entities';
+import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
 
 @Injectable()
 export class CapsulesService {
@@ -24,6 +31,7 @@ export class CapsulesService {
   private readonly TEXT_BLOCK_MAX_COUNT = 5;
   private readonly TEXT_BLOCK_TOTAL_LIMIT = 2000;
   private readonly DEFAULT_EGG_SLOTS = 3;
+  private readonly ENTRY_CONTENT_LIMIT = 2000;
 
   constructor(
     @InjectRepository(Capsule)
@@ -38,6 +46,12 @@ export class CapsulesService {
     private readonly mediaRepository: Repository<Media>,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
+    @InjectRepository(CapsuleParticipantSlot)
+    private readonly slotRepository: Repository<CapsuleParticipantSlot>,
+    @InjectRepository(CapsuleEntry)
+    private readonly entryRepository: Repository<CapsuleEntry>,
+    @InjectRepository(CapsuleAccessLog)
+    private readonly accessLogRepository: Repository<CapsuleAccessLog>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -623,7 +637,9 @@ export class CapsulesService {
 
     const product = order.product;
     const requestedMediaCount =
-      (order.photoCount ?? 0) + (order.addMusic ? 1 : 0) + (order.addVideo ? 1 : 0);
+      (order.photoCount ?? 0) +
+      (order.addMusic ? 1 : 0) +
+      (order.addVideo ? 1 : 0);
 
     if (product.maxMediaCount !== null && product.maxMediaCount !== undefined) {
       if (requestedMediaCount > product.maxMediaCount) {
@@ -677,5 +693,248 @@ export class CapsulesService {
       const saved = await repo.save(capsule);
       return saved;
     });
+  }
+
+  private async ensurePaidCapsuleContext(capsuleId: string) {
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id: capsuleId },
+      relations: { order: true, product: true },
+    });
+
+    if (!capsule || capsule.deletedAt) {
+      throw new NotFoundException('CAPSULE_NOT_FOUND');
+    }
+
+    if (!capsule.order || capsule.order.status !== OrderStatus.PAID) {
+      throw new ForbiddenException('CAPSULE_PAYMENT_REQUIRED');
+    }
+
+    if (capsule.order.headcount < 1) {
+      throw new BadRequestException('HEADCOUNT_INVALID');
+    }
+
+    return {
+      capsule,
+      order: capsule.order,
+      product: capsule.product ?? null,
+      headcount: capsule.order.headcount,
+    };
+  }
+
+  private async ensureSlotsCreated(capsuleId: string, headcount: number) {
+    const current = await this.slotRepository.count({ where: { capsuleId } });
+    if (current >= headcount) {
+      return;
+    }
+    const toCreate: CapsuleParticipantSlot[] = [];
+    for (let i = current; i < headcount; i++) {
+      toCreate.push(
+        this.slotRepository.create({
+          capsuleId,
+          slotIndex: i,
+          userId: null,
+          assignedAt: null,
+        }),
+      );
+    }
+    if (toCreate.length > 0) {
+      await this.slotRepository.save(toCreate);
+    }
+  }
+
+  private buildEntryMediaItems(
+    entry: CapsuleEntry | null,
+    mediaMap: Map<string, Media>,
+  ) {
+    if (!entry || !entry.mediaItemIds || entry.mediaItemIds.length === 0) {
+      return [];
+    }
+
+    return entry.mediaItemIds.map((id, idx) => {
+      const media = mediaMap.get(id);
+      const fallbackType = entry.mediaTypes?.[idx] ?? null;
+      return {
+        media_id: id,
+        type: media?.type ?? fallbackType ?? null,
+        object_key: media?.objectKey ?? null,
+      };
+    });
+  }
+
+  private async logCapsuleAccess(capsuleId: string, viewerId: string) {
+    try {
+      await this.accessLogRepository.insert({ capsuleId, viewerId });
+    } catch {
+      // 무시: 동일 유저 중복 조회는 Unique 제약에 의해 무시됨
+    }
+  }
+
+  async getCapsuleWithSlots(user: User, capsuleId: string) {
+    const { capsule, product, headcount } =
+      await this.ensurePaidCapsuleContext(capsuleId);
+
+    await this.ensureSlotsCreated(capsule.id, headcount);
+
+    const slots = await this.slotRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: { user: true },
+      order: { slotIndex: 'ASC' },
+    });
+    const entries = await this.entryRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: { user: true, slot: true },
+      order: { createdAt: 'ASC' },
+    });
+
+    const entryMap = new Map<string, CapsuleEntry>();
+    const mediaIds: string[] = [];
+    entries.forEach((entry) => {
+      entryMap.set(entry.slotId, entry);
+      if (entry.mediaItemIds) {
+        mediaIds.push(...entry.mediaItemIds);
+      }
+    });
+    const mediaEntities =
+      mediaIds.length > 0
+        ? await this.mediaRepository.find({
+            where: { id: In(Array.from(new Set(mediaIds))) },
+          })
+        : [];
+    const mediaMap = new Map(mediaEntities.map((m) => [m.id, m] as const));
+
+    await this.logCapsuleAccess(capsule.id, user.id);
+
+    return {
+      id: capsule.id,
+      title: capsule.title,
+      description: capsule.content,
+      open_at: capsule.openAt,
+      is_locked: capsule.isLocked,
+      headcount,
+      product: product
+        ? {
+            id: product.id,
+            product_type: product.productType,
+            max_media_count: product.maxMediaCount,
+            media_types: product.mediaTypes,
+          }
+        : null,
+      slots: slots.map((slot) => {
+        const entry = entryMap.get(slot.id) ?? null;
+        return {
+          slot_id: slot.id,
+          slot_index: slot.slotIndex,
+          user_id: slot.userId,
+          nickname: slot.user?.nickname ?? null,
+          profile_img: slot.user?.profileImg ?? null,
+          entry_id: entry?.id ?? null,
+          wrote_at: entry?.createdAt ?? null,
+          content: entry?.content ?? null,
+          media_items: this.buildEntryMediaItems(entry, mediaMap),
+        };
+      }),
+    };
+  }
+
+  async createCapsuleEntry(
+    user: User,
+    capsuleId: string,
+    dto: CreateCapsuleEntryDto,
+  ) {
+    const trimmedContent = dto.content?.trim() ?? '';
+    if (!trimmedContent) {
+      throw new BadRequestException('CONTENT_REQUIRED');
+    }
+    if (trimmedContent.length > this.ENTRY_CONTENT_LIMIT) {
+      throw new BadRequestException('CONTENT_TOO_LONG');
+    }
+
+    const { capsule, product, headcount } =
+      await this.ensurePaidCapsuleContext(capsuleId);
+
+    await this.ensureSlotsCreated(capsule.id, headcount);
+
+    const mediaResolved = await this.resolveMediaByIds(
+      user,
+      dto.media_item_ids ?? [],
+      product,
+    );
+
+    const normalizedMediaTypes =
+      mediaResolved.mediaTypes?.map((type) => {
+        if (!type) {
+          throw new BadRequestException('MEDIA_TYPE_REQUIRED');
+        }
+        return type;
+      }) ?? null;
+
+    const mediaMap = new Map(
+      mediaResolved.mediaEntities.map((m) => [m.id, m] as const),
+    );
+
+    const result = await this.dataSource.transaction<{
+      savedEntry: CapsuleEntry;
+      targetSlot: CapsuleParticipantSlot;
+    }>(async (manager) => {
+      const slotRepo = manager.getRepository(CapsuleParticipantSlot);
+      const entryRepo = manager.getRepository(CapsuleEntry);
+      const accessRepo = manager.getRepository(CapsuleAccessLog);
+
+      const existingEntry = await entryRepo.findOne({
+        where: { capsuleId: capsule.id, userId: user.id },
+        lock: { mode: 'pessimistic_read' },
+      });
+      if (existingEntry) {
+        throw new ConflictException('ENTRY_ALREADY_EXISTS');
+      }
+
+      const slots = await slotRepo.find({
+        where: { capsuleId: capsule.id },
+        order: { slotIndex: 'ASC' },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const targetSlot =
+        slots.find((s) => s.userId === user.id) ?? slots.find((s) => !s.userId);
+      if (!targetSlot) {
+        throw new ConflictException('SLOTS_FULL');
+      }
+      if (targetSlot.userId && targetSlot.userId !== user.id) {
+        throw new ForbiddenException('SLOT_OWNED_BY_ANOTHER_USER');
+      }
+
+      targetSlot.userId = user.id;
+      targetSlot.assignedAt = targetSlot.assignedAt ?? new Date();
+
+      const entry = entryRepo.create({
+        capsuleId: capsule.id,
+        slotId: targetSlot.id,
+        userId: user.id,
+        content: trimmedContent,
+        mediaItemIds: mediaResolved.mediaItemIds,
+        mediaTypes: normalizedMediaTypes,
+      });
+
+      const savedEntry = await entryRepo.save(entry);
+      await slotRepo.save(targetSlot);
+
+      try {
+        await accessRepo.insert({ capsuleId: capsule.id, viewerId: user.id });
+      } catch {
+        // 중복 조회는 무시
+      }
+
+      return { savedEntry, targetSlot };
+    });
+
+    return {
+      capsule_id: capsule.id,
+      entry_id: result.savedEntry.id,
+      slot_id: result.targetSlot.id,
+      slot_index: result.targetSlot.slotIndex,
+      wrote_at: result.savedEntry.createdAt,
+      content: result.savedEntry.content,
+      media_items: this.buildEntryMediaItems(result.savedEntry, mediaMap),
+    };
   }
 }

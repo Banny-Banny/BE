@@ -121,6 +121,18 @@ export class AuthService {
    * JWT 토큰 검증
    */
   async validateToken(payload: JwtPayload): Promise<User | null> {
-    return this.findById(payload.sub);
+    if (process.env.PLAYWRIGHT === 'true' || process.env.NODE_ENV === 'test') {
+      console.log('[auth] validateToken payload', payload);
+    }
+    const user = await this.findById(payload.sub);
+    if (!user) {
+      if (
+        process.env.PLAYWRIGHT === 'true' ||
+        process.env.NODE_ENV === 'test'
+      ) {
+        console.log('[auth] user not found for', payload.sub);
+      }
+    }
+    return user;
   }
 }

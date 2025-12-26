@@ -12,6 +12,8 @@ import {
   Friendship,
   CustomerService,
   Media,
+  CapsuleParticipantSlot,
+  CapsuleEntry,
 } from '../entities';
 
 @Module({
@@ -35,6 +37,8 @@ import {
           Product,
           Capsule,
           CapsuleAccessLog,
+          CapsuleParticipantSlot,
+          CapsuleEntry,
           Order,
           Payment,
           PaymentCancel,
@@ -127,6 +131,12 @@ import {
               logging: isDev,
               extra,
             };
+
+        if (isTestDb) {
+          console.log(
+            `[db] test db -> host=${pgHost}:${pgPort} db=${pgDatabase} user=${pgUser}`,
+          );
+        }
 
         return options;
       },

@@ -11,6 +11,8 @@ import {
   Friendship,
   CustomerService,
   Media,
+  CapsuleParticipantSlot,
+  CapsuleEntry,
 } from '../entities';
 
 /**
@@ -57,6 +59,8 @@ const dataSource = new DataSource({
     Product,
     Capsule,
     CapsuleAccessLog,
+    CapsuleParticipantSlot,
+    CapsuleEntry,
     Order,
     Payment,
     PaymentCancel,

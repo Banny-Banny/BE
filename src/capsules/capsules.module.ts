@@ -1,8 +1,19 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CapsulesController } from './capsules.controller';
+import { CapsuleEntriesController } from './capsule-entries.controller';
 import { CapsulesService } from './capsules.service';
-import { Capsule, Product, User, Friendship, Media, Order } from '../entities';
+import {
+  Capsule,
+  Product,
+  User,
+  Friendship,
+  Media,
+  Order,
+  CapsuleParticipantSlot,
+  CapsuleEntry,
+  CapsuleAccessLog,
+} from '../entities';
 
 @Module({
   imports: [
@@ -13,9 +24,12 @@ import { Capsule, Product, User, Friendship, Media, Order } from '../entities';
       Friendship,
       Media,
       Order,
+      CapsuleParticipantSlot,
+      CapsuleEntry,
+      CapsuleAccessLog,
     ]),
   ],
-  controllers: [CapsulesController],
+  controllers: [CapsulesController, CapsuleEntriesController],
   providers: [CapsulesService],
   exports: [CapsulesService],
 })
