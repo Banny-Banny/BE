@@ -153,7 +153,9 @@ export class CapsulesController {
   @ApiResponse({ status: 409, description: '슬롯 부족' })
   async create(@CurrentUser() user: User, @Body() dto: CreateCapsuleDto) {
     const capsule = await this.capsulesService.create(user, dto);
-    const mediaItems = extractMediaItems(capsule as any);
+    const mediaItems = extractMediaItems(
+      capsule as { mediaItems?: MediaItemResponse[] },
+    );
     return {
       id: capsule.id,
       title: capsule.title,
@@ -165,6 +167,20 @@ export class CapsulesController {
       media_items: mediaItems,
       text_blocks: capsule.textBlocks,
     };
+  }
+
+  @Post('slots/reset')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '이스터에그 슬롯 초기화',
+    description:
+      '현재 사용자의 이스터에그 작성 슬롯을 기본값(3)으로 초기화합니다.',
+  })
+  @ApiResponse({ status: 200, description: '초기화 성공' })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  async resetSlots(@CurrentUser() user: User) {
+    const eggSlots = await this.capsulesService.resetEggSlots(user);
+    return { egg_slots: eggSlots };
   }
 
   @Get(':id')
@@ -185,7 +201,9 @@ export class CapsulesController {
     @Query() query: GetCapsuleQueryDto,
   ) {
     const capsule = await this.capsulesService.findOne(user, params.id, query);
-    const mediaItems = extractMediaItems(capsule as any);
+    const mediaItems = extractMediaItems(
+      capsule as { mediaItems?: MediaItemResponse[] },
+    );
 
     return {
       id: capsule.id,

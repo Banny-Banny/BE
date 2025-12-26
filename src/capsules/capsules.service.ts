@@ -23,6 +23,7 @@ export class CapsulesService {
   private readonly DEFAULT_MEDIA_LIMIT = 3;
   private readonly TEXT_BLOCK_MAX_COUNT = 5;
   private readonly TEXT_BLOCK_TOTAL_LIMIT = 2000;
+  private readonly DEFAULT_EGG_SLOTS = 3;
 
   constructor(
     @InjectRepository(Capsule)
@@ -276,6 +277,30 @@ export class CapsulesService {
       default:
         throw new BadRequestException('TIME_OPTION_NOT_SUPPORTED');
     }
+  }
+
+  async resetEggSlots(user: User): Promise<number> {
+    if (!user) {
+      throw new ConflictException('USER_NOT_FOUND');
+    }
+
+    const slots = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const targetUser = await userRepo.findOne({
+        where: { id: user.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!targetUser) {
+        throw new ConflictException('USER_NOT_FOUND');
+      }
+
+      targetUser.eggSlots = this.DEFAULT_EGG_SLOTS;
+      const saved = await userRepo.save(targetUser);
+      return saved.eggSlots;
+    });
+
+    return slots;
   }
 
   async create(user: User, dto: CreateCapsuleDto): Promise<Capsule> {
