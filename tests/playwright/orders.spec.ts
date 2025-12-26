@@ -132,11 +132,11 @@ test('주문 생성 201: 옵션/금액 계산', async () => {
   }
   expect(res.status()).toBe(201);
   const body = await res.json();
-  // total: time(1주=1000) + image(4*500=2000) + audio(1000) = 4000
-  expect(body.total_amount).toBe(4000);
+  // total: time(1주=1000) + image(4*500*2=4000, headcount 2 반영) + audio(1000) = 6000
+  expect(body.total_amount).toBe(6000);
   // 세부 금액 검증
   expect(body.time_option_amount).toBe(1000);
-  expect(body.image_amount).toBe(2000);
+  expect(body.image_amount).toBe(4000);
   expect(body.audio_amount).toBe(1000);
   expect(body.video_amount).toBe(0);
   expect(body.status).toBe('PENDING_PAYMENT');
@@ -156,7 +156,7 @@ test('photo_count가 인원당 제한 초과시 400', async () => {
       product_id: TIME_CAPSULE_PRODUCT_ID,
       time_option: '1_WEEK',
       headcount: 1,
-      photo_count: 10, // headcount(1) * 5 초과
+      photo_count: 11, // headcount(1) * 10 초과
     },
   });
 

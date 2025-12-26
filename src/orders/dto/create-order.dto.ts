@@ -29,6 +29,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(100)
   photo_count?: number;
 
   @IsOptional()
