@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   Req,
   Res,
@@ -32,6 +33,8 @@ interface KakaoRequest extends Request {
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
   /**
    * 카카오 로그인 시작
@@ -47,7 +50,13 @@ export class AuthController {
     status: 302,
     description: '카카오 로그인 페이지로 리다이렉트',
   })
-  kakaoLogin(): void {
+  kakaoLogin(@Req() request: Request): void {
+    this.logger.log('=== Request Headers ===');
+    this.logger.log(`Origin: ${request.headers.origin}`);
+    this.logger.log(`Referer: ${request.headers.referer}`);
+    this.logger.log(`User-Agent: ${request.headers['user-agent']}`);
+    this.logger.log('======================');
+
     // 카카오 로그인 페이지로 리다이렉트
     // Passport가 자동으로 처리
   }
@@ -66,9 +75,12 @@ export class AuthController {
     // - AUTH_CALLBACK_REDIRECT_URL: 앱 딥링크 (예: timeegg://auth/callback)
     // - FRONTEND_URL: 웹 도메인 (예: https://example.com), 기본 경로는 /auth/callback
     const fallbackBase = process.env.FRONTEND_URL || 'http://localhost:8081';
-    const fallbackPath = process.env.FRONTEND_CALLBACK_PATH || '/auth/callback';
+    const fallbackPath =
+      process.env.FRONTEND_CALLBACK_PATH || '/api/auth/kakao/callback';
     const webCallback = `${fallbackBase.replace(/\/$/, '')}${fallbackPath}`;
-    const mobileCallback = process.env.AUTH_CALLBACK_REDIRECT_URL;
+    const mobileCallback =
+      process.env.AUTH_CALLBACK_REDIRECT_URL ||
+      'timeegg://auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}';
 
     const userAgentHeader = req.headers['user-agent'];
     const userAgent = Array.isArray(userAgentHeader)
