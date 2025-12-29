@@ -23,6 +23,7 @@ async function bootstrap() {
     'http://localhost:8081', // 웹 개발 환경
     'http://192.168.*.*:8081', // 로컬 네트워크
     'exp://192.168.*.*:8081', // Expo 개발 서버
+    'null', // WebBrowser 등에서 들어오는 null origin
     '*', // 개발 환경에서 모든 origin 허용
   ];
   const allowAllOrigins = corsWhitelist.includes('*');
@@ -43,7 +44,10 @@ async function bootstrap() {
     if (allowAllOrigins) {
       return true;
     }
-    if (corsWhitelist.includes(origin)) {
+    if (origin === 'null' || origin === null) {
+      return corsWhitelist.includes('null');
+    }
+    if (origin && corsWhitelist.includes(origin)) {
       return true;
     }
     return wildcardOrigins.some((pattern) => pattern.test(origin));
