@@ -19,8 +19,50 @@ async function bootstrap() {
   );
 
   // CORS 설정
+  const corsWhitelist = [
+    'http://localhost:8081', // 웹 개발 환경
+    'http://192.168.*.*:8081', // 로컬 네트워크
+    'exp://192.168.*.*:8081', // Expo 개발 서버
+    '*', // 개발 환경에서 모든 origin 허용
+  ];
+  const allowAllOrigins = corsWhitelist.includes('*');
+  const wildcardOrigins = corsWhitelist
+    .filter((origin) => origin !== '*' && origin.includes('*'))
+    .map((origin) => {
+      const escaped = origin
+        .split('*')
+        .map((segment) => segment.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&'))
+        .join('.*');
+      return new RegExp(`^${escaped}$`);
+    });
+
+  const isOriginWhitelisted = (origin?: string): boolean => {
+    if (!origin) {
+      return true; // Postman이나 내부 서버 호출 허용
+    }
+    if (allowAllOrigins) {
+      return true;
+    }
+    if (corsWhitelist.includes(origin)) {
+      return true;
+    }
+    return wildcardOrigins.some((pattern) => pattern.test(origin));
+  };
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:8081',
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      if (isOriginWhitelisted(origin)) {
+        callback(null, true);
+      } else {
+        callback(
+          new Error(`Origin ${origin ?? 'unknown'} is not allowed by CORS`),
+          false,
+        );
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
