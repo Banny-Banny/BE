@@ -1,10 +1,13 @@
 import {
+  Body,
   Controller,
   Get,
-  UseGuards,
+  HttpCode,
+  HttpStatus,
+  Post,
   Req,
   Res,
-  HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
@@ -15,7 +18,9 @@ import {
   ApiExcludeEndpoint,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { TokenResponse } from './auth.service';
+import { AuthService, TokenResponse } from './auth.service';
+import { LocalLoginRequestDto } from './dto/local-login.request.dto';
+import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from '../entities';
@@ -27,6 +32,7 @@ interface KakaoRequest extends Request {
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  constructor(private readonly authService: AuthService) {}
   /**
    * 카카오 로그인 시작
    * GET /auth/kakao
@@ -62,8 +68,16 @@ export class AuthController {
     const fallbackBase = process.env.FRONTEND_URL || 'http://localhost:8081';
     const fallbackPath = process.env.FRONTEND_CALLBACK_PATH || '/auth/callback';
     const webCallback = `${fallbackBase.replace(/\/$/, '')}${fallbackPath}`;
+    const mobileCallback = process.env.AUTH_CALLBACK_REDIRECT_URL;
+
+    const userAgentHeader = req.headers['user-agent'];
+    const userAgent = Array.isArray(userAgentHeader)
+      ? userAgentHeader.join(' ')
+      : userAgentHeader || '';
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
+
     const clientCallback =
-      process.env.AUTH_CALLBACK_REDIRECT_URL || webCallback;
+      isMobile && mobileCallback ? mobileCallback : webCallback;
 
     const queryParams = new URLSearchParams({
       token: accessToken,
@@ -83,6 +97,67 @@ export class AuthController {
     }
 
     return res.redirect(HttpStatus.FOUND, redirectUrl);
+  }
+
+  @Post('local/signup')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: '자체 회원가입',
+    description:
+      '휴대폰 번호/닉네임/비밀번호로 로컬 계정을 생성하고 토큰을 발급합니다.',
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: '회원가입 성공',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: '중복된 전화번호 또는 이메일',
+  })
+  signupLocal(@Body() payload: LocalSignupRequestDto): Promise<TokenResponse> {
+    return this.authService.signupLocal(payload);
+  }
+
+  @Post('local/login')
+  @ApiOperation({
+    summary: '자체 로그인',
+    description: '전화번호 또는 이메일 + 비밀번호로 인증하고 JWT를 받습니다.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: '로그인 성공',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '인증 실패한 경우',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: '활성화되지 않은 계정 또는 SNS 계정으로 시도한 경우',
+  })
+  loginLocal(@Body() payload: LocalLoginRequestDto): Promise<TokenResponse> {
+    return this.authService.loginLocal(payload);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '로그아웃',
+    description: '현재 토큰을 무효화하여 재사용을 막습니다.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: '로그아웃 성공',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '유효하지 않은 토큰',
+  })
+  async logout(@CurrentUser() user: User) {
+    await this.authService.logout(user);
+    return { success: true };
   }
 
   /**

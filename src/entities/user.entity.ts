@@ -45,7 +45,7 @@ export class User {
     nullable: true,
     comment: '계정 복구 및 알림용',
   })
-  email: string;
+  email: string | null;
 
   @Column({
     type: 'varchar',
@@ -54,7 +54,24 @@ export class User {
     name: 'profile_img',
     comment: 'S3 이미지 URL',
   })
-  profileImg: string;
+  profileImg: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'password_hash',
+    comment: '로컬 로그인용 bcrypt 해시',
+  })
+  passwordHash: string | null;
+
+  @Column({
+    type: 'int',
+    default: 0,
+    name: 'token_version',
+    comment: 'JWT 무효화/로그아웃용 버전',
+  })
+  tokenVersion: number;
 
   // [핵심] 카카오 고유 ID (Long 타입이므로 String으로 저장)
   @Column({

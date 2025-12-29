@@ -1,8 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
+import { promisify } from 'util';
 import { User } from '../entities';
+import { LocalLoginRequestDto } from './dto/local-login.request.dto';
+import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
 
 export interface KakaoUserInfo {
   kakaoId: string;
@@ -14,6 +24,7 @@ export interface KakaoUserInfo {
 export interface JwtPayload {
   sub: string; // user id
   nickname: string;
+  tokenVersion?: number;
 }
 
 export interface TokenResponse {
@@ -26,6 +37,10 @@ export interface TokenResponse {
     isNewUser: boolean;
   };
 }
+
+const PASSWORD_SALT_BYTES = 16;
+const PASSWORD_KEY_LEN = 64;
+const scryptAsync = promisify(_scrypt);
 
 @Injectable()
 export class AuthService {
@@ -83,18 +98,88 @@ export class AuthService {
       await this.userRepository.save(user);
     }
 
-    const accessToken = this.generateToken(user);
+    return this.buildTokenResponse(user, isNewUser);
+  }
 
-    return {
-      accessToken,
-      user: {
-        id: user.id,
-        nickname: user.nickname,
-        email: user.email,
-        profileImg: user.profileImg,
-        isNewUser,
-      },
-    };
+  async signupLocal(dto: LocalSignupRequestDto): Promise<TokenResponse> {
+    const phoneNumber = dto.phoneNumber.trim();
+    const email = dto.email?.trim();
+
+    const duplicatePhone = await this.userRepository.findOne({
+      where: { phoneNumber },
+    });
+    if (duplicatePhone) {
+      throw new ConflictException('이미 사용 중인 전화번호입니다.');
+    }
+
+    if (email) {
+      const duplicateEmail = await this.userRepository.findOne({
+        where: { email },
+      });
+      if (duplicateEmail) {
+        throw new ConflictException('이미 사용 중인 이메일입니다.');
+      }
+    }
+
+    const hashedPassword = await this.hashPassword(dto.password);
+
+    const user = this.userRepository.create();
+    user.nickname = dto.nickname.trim();
+    user.phoneNumber = phoneNumber;
+    user.passwordHash = hashedPassword;
+    user.email = email ?? null;
+    user.profileImg = dto.profileImg ?? null;
+    user.provider = 'LOCAL';
+    user.isActive = true;
+    user.tokenVersion = 0;
+
+    await this.userRepository.save(user);
+
+    return this.buildTokenResponse(user, true);
+  }
+
+  async loginLocal(dto: LocalLoginRequestDto): Promise<TokenResponse> {
+    const phoneNumber = dto.phoneNumber?.trim();
+    const email = dto.email?.trim();
+
+    if (!phoneNumber && !email) {
+      throw new BadRequestException('휴대폰 또는 이메일을 입력해야 합니다.');
+    }
+
+    const where = phoneNumber ? { phoneNumber } : { email: email! };
+
+    const user = await this.userRepository.findOne({
+      where,
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('등록된 계정이 없습니다.');
+    }
+
+    if (user.provider !== 'LOCAL') {
+      throw new ForbiddenException('로컬 계정으로 로그인할 수 없습니다.');
+    }
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('비밀번호가 설정되지 않은 계정입니다.');
+    }
+
+    const matches = await this.verifyPassword(dto.password, user.passwordHash);
+
+    if (!matches) {
+      throw new UnauthorizedException('비밀번호가 일치하지 않습니다.');
+    }
+
+    if (!user.isActive) {
+      throw new ForbiddenException('정지된 계정입니다.');
+    }
+
+    return this.buildTokenResponse(user, false);
+  }
+
+  async logout(user: User): Promise<void> {
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    await this.userRepository.save(user);
   }
 
   /**
@@ -104,8 +189,22 @@ export class AuthService {
     const payload: JwtPayload = {
       sub: user.id,
       nickname: user.nickname,
+      tokenVersion: user.tokenVersion ?? 0,
     };
     return this.jwtService.sign(payload);
+  }
+
+  private buildTokenResponse(user: User, isNewUser: boolean): TokenResponse {
+    return {
+      accessToken: this.generateToken(user),
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        email: user.email ?? null,
+        profileImg: user.profileImg ?? null,
+        isNewUser,
+      },
+    };
   }
 
   /**
@@ -115,6 +214,39 @@ export class AuthService {
     return this.userRepository.findOne({
       where: { id, isActive: true },
     });
+  }
+
+  private async hashPassword(password: string): Promise<string> {
+    const salt = randomBytes(PASSWORD_SALT_BYTES).toString('hex');
+    const derived = (await scryptAsync(
+      password,
+      salt,
+      PASSWORD_KEY_LEN,
+    )) as Buffer;
+    return `${salt}:${derived.toString('hex')}`;
+  }
+
+  private async verifyPassword(
+    password: string,
+    storedHash: string | null,
+  ): Promise<boolean> {
+    if (!storedHash) {
+      return false;
+    }
+    const [salt, keyHex] = storedHash.split(':');
+    if (!salt || !keyHex) {
+      return false;
+    }
+    const derived = (await scryptAsync(
+      password,
+      salt,
+      PASSWORD_KEY_LEN,
+    )) as Buffer;
+    try {
+      return timingSafeEqual(Buffer.from(keyHex, 'hex'), derived);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -132,7 +264,25 @@ export class AuthService {
       ) {
         console.log('[auth] user not found for', payload.sub);
       }
+      return null;
     }
+
+    const tokenVersion = payload.tokenVersion ?? 0;
+    const storedVersion = user.tokenVersion ?? 0;
+    if (tokenVersion !== storedVersion) {
+      if (
+        process.env.PLAYWRIGHT === 'true' ||
+        process.env.NODE_ENV === 'test'
+      ) {
+        console.log(
+          '[auth] token version mismatch',
+          tokenVersion,
+          storedVersion,
+        );
+      }
+      return null;
+    }
+
     return user;
   }
 }
