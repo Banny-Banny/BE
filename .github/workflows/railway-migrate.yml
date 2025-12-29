@@ -24,5 +24,18 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Seed base schema if missing
+        shell: bash
+        run: |
+          if [ -f schema.sql ]; then
+            if [ -z "$(psql "$DATABASE_URL" -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='users';")" ]; then
+              echo "Applying base schema from schema.sql"
+              psql "$DATABASE_URL" -f schema.sql
+            else
+              echo "Base schema already exists"
+            fi
+          else
+            echo "No schema.sql file found, skipping base schema load"
+          fi
       - name: Run TypeORM migrations (Railway direct)
         run: npm run migration:run
