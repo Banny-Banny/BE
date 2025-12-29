@@ -82,6 +82,10 @@ export class AuthController {
       process.env.AUTH_CALLBACK_REDIRECT_URL ||
       'timeegg://auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}';
 
+    const requestedFrontendCallback = (
+      req.query.redirect_uri as string | undefined
+    )?.trim();
+
     const userAgentHeader = req.headers['user-agent'];
     const userAgent = Array.isArray(userAgentHeader)
       ? userAgentHeader.join(' ')
@@ -89,7 +93,8 @@ export class AuthController {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(userAgent);
 
     const clientCallback =
-      isMobile && mobileCallback ? mobileCallback : webCallback;
+      requestedFrontendCallback ||
+      (isMobile && mobileCallback ? mobileCallback : webCallback);
 
     const queryParams = new URLSearchParams({
       token: accessToken,
