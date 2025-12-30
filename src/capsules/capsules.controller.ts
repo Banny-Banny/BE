@@ -38,7 +38,7 @@ function extractMediaItems(
 
 @ApiTags('Capsules')
 @ApiBearerAuth('access-token')
-@Controller('capsule')
+@Controller('capsules')
 export class CapsulesController {
   constructor(private readonly capsulesService: CapsulesService) {}
 
