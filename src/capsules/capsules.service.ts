@@ -501,7 +501,8 @@ export class CapsulesService {
       .where('capsule.deleted_at IS NULL')
       .andWhere('(product.id IS NULL OR product.isActive = true)')
       .andWhere(
-        `(EXISTS (SELECT 1 FROM friendships f WHERE f.user_id = :userId AND f.friend_id = capsule.user_id AND f.status = :status)
+        `(capsule.user_id = :userId
+        OR EXISTS (SELECT 1 FROM friendships f WHERE f.user_id = :userId AND f.friend_id = capsule.user_id AND f.status = :status)
         OR EXISTS (SELECT 1 FROM friendships fr WHERE fr.user_id = capsule.user_id AND fr.friend_id = :userId AND fr.status = :status))`,
         { userId: user.id, status: FriendStatus.CONNECTED },
       );
