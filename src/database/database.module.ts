@@ -27,9 +27,10 @@ import {
           configService.get<string>('PLAYWRIGHT') === 'true' ||
           !!configService.get<string>('TEST_DB_HOST');
 
-        const databaseUrl =
-          configService.get<string>('DATABASE_PUBLIC_URL') ??
-          (!isTestDb ? configService.get<string>('DATABASE_URL') : undefined);
+        const databaseUrl = isTestDb
+          ? undefined
+          : (configService.get<string>('DATABASE_PUBLIC_URL') ??
+            configService.get<string>('DATABASE_URL'));
         const isDev = configService.get<string>('NODE_ENV') === 'development';
 
         const entities = [

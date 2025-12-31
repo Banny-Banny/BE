@@ -2,17 +2,25 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import 'reflect-metadata';
+import dotenv from 'dotenv';
 import { test, expect, request, APIRequestContext } from '@playwright/test';
 import { Client } from 'pg';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
+// Load test env first, then fall back to default .env
+dotenv.config({ path: '.env.test' });
+dotenv.config();
+
 const DB_CONFIG = {
-  host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USERNAME ?? '',
-  password: process.env.DB_PASSWORD ?? '',
-  database: process.env.DB_DATABASE ?? '',
+  host: process.env.TEST_DB_HOST ?? process.env.DB_HOST ?? 'localhost',
+  port: Number(process.env.TEST_DB_PORT ?? process.env.DB_PORT ?? 5432),
+  user: process.env.TEST_DB_USERNAME ?? process.env.DB_USERNAME ?? '',
+  password: process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? '',
+  database:
+    process.env.TEST_DB_DATABASE ??
+    process.env.DB_DATABASE ??
+    'banny_banny_test',
   ssl:
     process.env.DB_SSL === 'true'
       ? {
@@ -34,10 +42,11 @@ async function createUser() {
   const phone = `010-${Math.floor(Math.random() * 9000 + 1000)}-${Math.floor(
     Math.random() * 9000 + 1000,
   )}`;
+  // token_version은 기본값 0이므로 명시하지 않아도 됨
   await client.query(
     `
-    INSERT INTO users (id, nickname, phone_number, provider, egg_slots)
-    VALUES ($1, $2, $3, 'LOCAL', 3)
+    INSERT INTO users (id, nickname, phone_number, provider, egg_slots, is_active)
+    VALUES ($1, $2, $3, 'LOCAL', 3, true)
     `,
     [id, 'order-user', phone],
   );
@@ -311,5 +320,393 @@ test('주문 조회 404: 상품 비활성', async () => {
   expect(getRes.status()).toBe(404);
 
   await setProductActive(TIME_CAPSULE_PRODUCT_ID, true);
+  await cleanupUser(userId);
+});
+
+// ===========================================
+// 주문 상태 조회 및 변경 테스트
+// ===========================================
+
+test('주문 상태 조회 200: 결제 정보 없음', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  const statusRes = await api.get(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (statusRes.status() !== 200) {
+    console.error(
+      'GET /orders/:orderId/status status',
+      statusRes.status(),
+      await statusRes.text(),
+    );
+  }
+  expect(statusRes.status()).toBe(200);
+  const body = await statusRes.json();
+  expect(body.order_id).toBe(orderId);
+  expect(body.order_status).toBe('PENDING_PAYMENT');
+  expect(body.payment_status).toBeNull();
+  expect(body.total_amount).toBeGreaterThan(0);
+  expect(body.payment_amount).toBeNull();
+  expect(body.payment_key).toBeNull();
+  expect(body.approved_at).toBeNull();
+  expect(body.created_at).toBeDefined();
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 조회 200: 결제 정보 있음', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  // 결제 정보 생성
+  const paymentId = crypto.randomUUID();
+  const paymentKey = `test-payment-key-${crypto.randomUUID()}`;
+  await client.query(
+    `
+    INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid)
+    VALUES ($1, $2, $3, $4, 'READY', 'KRW', $5)
+    `,
+    [paymentId, orderId, paymentKey, 1500, paymentKey],
+  );
+
+  const statusRes = await api.get(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(statusRes.status()).toBe(200);
+  const body = await statusRes.json();
+  expect(body.order_id).toBe(orderId);
+  expect(body.order_status).toBe('PENDING_PAYMENT');
+  expect(body.payment_status).toBe('READY');
+  expect(body.payment_amount).toBe(1500);
+  expect(body.payment_key).toBe(paymentKey);
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 조회 403: 소유자 아님', async () => {
+  await createProductTimeCapsule();
+  const { id: ownerId, token: ownerToken } = await createUser();
+  const { token: otherToken } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  const statusRes = await api.get(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${otherToken}` },
+  });
+  if (statusRes.status() !== 403) {
+    console.error(
+      'GET /orders/:orderId/status (other user) status',
+      statusRes.status(),
+      await statusRes.text(),
+    );
+  }
+  expect(statusRes.status()).toBe(403);
+
+  await cleanupUser(ownerId);
+});
+
+test('주문 상태 조회 404: 주문 미존재', async () => {
+  const { id: userId, token } = await createUser();
+  const fakeOrderId = crypto.randomUUID();
+
+  const statusRes = await api.get(`/api/orders/${fakeOrderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(statusRes.status()).toBe(404);
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 변경 201: PENDING_PAYMENT -> CANCELED (결제 정보 없음)', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  const updateRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      status: 'CANCELED',
+    },
+  });
+  if (updateRes.status() !== 200) {
+    console.error(
+      'PATCH /orders/:orderId/status status',
+      updateRes.status(),
+      await updateRes.text(),
+    );
+  }
+  expect(updateRes.status()).toBe(201);
+  const body = await updateRes.json();
+  expect(body.order_id).toBe(orderId);
+  expect(body.order_status).toBe('CANCELED');
+  expect(body.payment_status).toBeNull();
+  expect(body.updated_at).toBeDefined();
+
+  // 상태 확인
+  const statusRes = await api.get(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(statusRes.status()).toBe(200);
+  const statusBody = await statusRes.json();
+  expect(statusBody.order_status).toBe('CANCELED');
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 변경 201: PENDING_PAYMENT -> PAID (결제 정보 동기화)', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  // 결제 정보 생성 (READY 상태)
+  const paymentId = crypto.randomUUID();
+  const paymentKey = `test-payment-key-${crypto.randomUUID()}`;
+  await client.query(
+    `
+    INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid)
+    VALUES ($1, $2, $3, $4, 'READY', 'KRW', $5)
+    `,
+    [paymentId, orderId, paymentKey, 1500, paymentKey],
+  );
+
+  const updateRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      status: 'PAID',
+    },
+  });
+  expect(updateRes.status()).toBe(201);
+  const body = await updateRes.json();
+  expect(body.order_id).toBe(orderId);
+  expect(body.order_status).toBe('PAID');
+  expect(body.payment_status).toBe('PAID'); // 결제 정보 동기화 확인
+  expect(body.updated_at).toBeDefined();
+
+  // 상태 확인
+  const statusRes = await api.get(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(statusRes.status()).toBe(200);
+  const statusBody = await statusRes.json();
+  expect(statusBody.order_status).toBe('PAID');
+  expect(statusBody.payment_status).toBe('PAID');
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 변경 201: PAID -> CANCELED (결제 정보 동기화)', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  // 주문 상태를 PAID로 직접 변경
+  await client.query('UPDATE orders SET status = $1 WHERE id = $2', [
+    'PAID',
+    orderId,
+  ]);
+
+  // 결제 정보 생성 (PAID 상태)
+  const paymentId = crypto.randomUUID();
+  const paymentKey = `test-payment-key-${crypto.randomUUID()}`;
+  await client.query(
+    `
+    INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid)
+    VALUES ($1, $2, $3, $4, 'PAID', 'KRW', $5)
+    `,
+    [paymentId, orderId, paymentKey, 1500, paymentKey],
+  );
+
+  const updateRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      status: 'CANCELED',
+    },
+  });
+  expect(updateRes.status()).toBe(201);
+  const body = await updateRes.json();
+  expect(body.order_id).toBe(orderId);
+  expect(body.order_status).toBe('CANCELED');
+  expect(body.payment_status).toBe('CANCELED'); // 결제 정보 동기화 확인
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 변경 400: 유효하지 않은 상태 전환 (PAID -> PENDING_PAYMENT)', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  // 주문 상태를 PAID로 직접 변경
+  await client.query('UPDATE orders SET status = $1 WHERE id = $2', [
+    'PAID',
+    orderId,
+  ]);
+
+  const updateRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      status: 'PENDING_PAYMENT',
+    },
+  });
+  expect(updateRes.status()).toBe(400);
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 변경 400: 유효하지 않은 상태 전환 (CANCELED -> PAID)', async () => {
+  await createProductTimeCapsule();
+  const { id: userId, token } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  // 주문 상태를 CANCELED로 직접 변경
+  await client.query('UPDATE orders SET status = $1 WHERE id = $2', [
+    'CANCELED',
+    orderId,
+  ]);
+
+  const updateRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      status: 'PAID',
+    },
+  });
+  expect(updateRes.status()).toBe(400);
+
+  await cleanupUser(userId);
+});
+
+test('주문 상태 변경 403: 소유자 아님', async () => {
+  await createProductTimeCapsule();
+  const { id: ownerId, token: ownerToken } = await createUser();
+  const { token: otherToken } = await createUser();
+
+  const createRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    data: {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const orderId = (await createRes.json()).order_id as string;
+
+  const updateRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${otherToken}` },
+    data: {
+      status: 'CANCELED',
+    },
+  });
+  if (updateRes.status() !== 403) {
+    console.error(
+      'PATCH /orders/:orderId/status (other user) status',
+      updateRes.status(),
+      await updateRes.text(),
+    );
+  }
+  expect(updateRes.status()).toBe(403);
+
+  await cleanupUser(ownerId);
+});
+
+test('주문 상태 변경 404: 주문 미존재', async () => {
+  const { id: userId, token } = await createUser();
+  const fakeOrderId = crypto.randomUUID();
+
+  const updateRes = await api.post(`/api/orders/${fakeOrderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      status: 'CANCELED',
+    },
+  });
+  expect(updateRes.status()).toBe(404);
+
   await cleanupUser(userId);
 });

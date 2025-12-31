@@ -5,12 +5,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { Product, ProductType } from '../entities/product.entity';
 import { User } from '../entities/user.entity';
+import { Payment } from '../entities/payment.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { OrderStatus, TimeOption } from '../common/enums';
+import { OrderStatus, TimeOption, PaymentStatus } from '../common/enums';
 
 @Injectable()
 export class OrdersService {
@@ -19,6 +20,9 @@ export class OrdersService {
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(Payment)
+    private readonly paymentRepository: Repository<Payment>,
+    private readonly dataSource: DataSource,
   ) {}
 
   private validateDto(dto: CreateOrderDto) {
@@ -45,6 +49,55 @@ export class OrdersService {
         throw new BadRequestException('CUSTOM_OPEN_AT_MUST_BE_FUTURE');
       }
     }
+  }
+
+  /**
+   * 주문 상태 전환 검증
+   * @param currentStatus 현재 주문 상태
+   * @param newStatus 변경하려는 주문 상태
+   * @throws BadRequestException 유효하지 않은 상태 전환인 경우
+   */
+  private validateStatusTransition(
+    currentStatus: OrderStatus,
+    newStatus: OrderStatus,
+  ): void {
+    // 동일한 상태로 변경하는 것은 허용
+    if (currentStatus === newStatus) {
+      return;
+    }
+
+    // PENDING_PAYMENT에서 허용되는 전환
+    if (currentStatus === OrderStatus.PENDING_PAYMENT) {
+      if (
+        newStatus === OrderStatus.PAID ||
+        newStatus === OrderStatus.CANCELED ||
+        newStatus === OrderStatus.FAILED
+      ) {
+        return;
+      }
+    }
+
+    // PAID에서 허용되는 전환
+    if (currentStatus === OrderStatus.PAID) {
+      if (newStatus === OrderStatus.CANCELED) {
+        return;
+      }
+    }
+
+    // CANCELED, FAILED는 변경 불가
+    if (
+      currentStatus === OrderStatus.CANCELED ||
+      currentStatus === OrderStatus.FAILED
+    ) {
+      throw new BadRequestException(
+        `INVALID_STATUS_TRANSITION: Cannot change from ${currentStatus} to ${newStatus}`,
+      );
+    }
+
+    // 그 외의 모든 전환은 유효하지 않음
+    throw new BadRequestException(
+      `INVALID_STATUS_TRANSITION: Cannot change from ${currentStatus} to ${newStatus}`,
+    );
   }
 
   private roundToHundred(amount: number): number {
@@ -191,5 +244,131 @@ export class OrdersService {
         media_types: product.mediaTypes,
       },
     };
+  }
+
+  /**
+   * 주문 상태 및 결제 정보 조회
+   */
+  async getStatus(user: User, orderId: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    if (order.userId !== user.id) {
+      throw new ForbiddenException('ORDER_NOT_OWNED');
+    }
+
+    // 결제 정보 조회 (있으면 포함, 없으면 null)
+    const payment = await this.paymentRepository.findOne({
+      where: { orderId: order.id },
+    });
+
+    return {
+      order_id: order.id,
+      order_status: order.status,
+      payment_status: payment ? payment.status : null,
+      total_amount: order.totalAmount,
+      payment_amount: payment ? payment.amount : null,
+      payment_key: payment ? payment.paymentKey : null,
+      approved_at: payment ? payment.approvedAt : null,
+      created_at: order.createdAt,
+      updated_at: order.updatedAt,
+    };
+  }
+
+  /**
+   * 결제 정보 상태 동기화
+   */
+  private async syncPaymentStatus(
+    orderId: string,
+    orderStatus: OrderStatus,
+  ): Promise<void> {
+    const payment = await this.paymentRepository.findOne({
+      where: { orderId },
+    });
+
+    if (!payment) {
+      // 결제 정보가 없으면 스킵
+      return;
+    }
+
+    // 주문 상태에 따라 결제 상태 동기화
+    if (orderStatus === OrderStatus.PAID) {
+      payment.status = PaymentStatus.PAID;
+    } else if (orderStatus === OrderStatus.CANCELED) {
+      payment.status = PaymentStatus.CANCELED;
+    } else if (orderStatus === OrderStatus.FAILED) {
+      payment.status = PaymentStatus.FAILED;
+    }
+
+    await this.paymentRepository.save(payment);
+  }
+
+  /**
+   * 주문 상태 변경
+   */
+  async updateStatus(
+    user: User,
+    orderId: string,
+    status: OrderStatus,
+  ): Promise<{
+    order_id: string;
+    order_status: OrderStatus;
+    payment_status: PaymentStatus | null;
+    updated_at: Date | null;
+  }> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    if (order.userId !== user.id) {
+      throw new ForbiddenException('ORDER_NOT_OWNED');
+    }
+
+    // 상태 전환 검증
+    this.validateStatusTransition(order.status, status);
+
+    // 트랜잭션으로 주문 상태 업데이트 및 결제 정보 동기화
+    const result = await this.dataSource.transaction(async (manager) => {
+      // 주문 상태 업데이트
+      order.status = status;
+      order.updatedAt = new Date();
+      const updatedOrder = await manager.getRepository(Order).save(order);
+
+      // 결제 정보 동기화
+      const payment = await manager.getRepository(Payment).findOne({
+        where: { orderId: order.id },
+      });
+
+      let paymentStatus: PaymentStatus | null = null;
+      if (payment) {
+        if (status === OrderStatus.PAID) {
+          payment.status = PaymentStatus.PAID;
+        } else if (status === OrderStatus.CANCELED) {
+          payment.status = PaymentStatus.CANCELED;
+        } else if (status === OrderStatus.FAILED) {
+          payment.status = PaymentStatus.FAILED;
+        }
+        await manager.getRepository(Payment).save(payment);
+        paymentStatus = payment.status;
+      }
+
+      return {
+        order_id: updatedOrder.id,
+        order_status: updatedOrder.status,
+        payment_status: paymentStatus,
+        updated_at: updatedOrder.updatedAt,
+      };
+    });
+
+    return result;
   }
 }
