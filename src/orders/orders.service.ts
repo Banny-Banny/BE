@@ -35,9 +35,9 @@ export class OrdersService {
     if (photoCount < 0) {
       throw new BadRequestException('PHOTO_COUNT_NEGATIVE');
     }
-    const maxPhotosByHeadcount = headcount * 10;
-    if (photoCount > maxPhotosByHeadcount) {
-      throw new BadRequestException('PHOTO_COUNT_EXCEEDS_HEADCOUNT_LIMIT');
+    const maxPhotos = 5; // 전체 최대 5장
+    if (photoCount > maxPhotos) {
+      throw new BadRequestException('PHOTO_COUNT_EXCEEDS_LIMIT');
     }
 
     if (dto.time_option === TimeOption.CUSTOM) {
@@ -153,11 +153,11 @@ export class OrdersService {
     }
 
     // 금액 계산 (주문 단위)
-    const timeOptionAmount = this.calculateTimeOptionAmount(dto); // 기간별 요금
+    const timeOptionAmount = this.calculateTimeOptionAmount(dto); // 기간별 요금 (basePrice)
     const photoCount = dto.photo_count ?? 0;
-    const imageAmount = photoCount * 500 * dto.headcount; // 이미지 1장당 500원, 인원수 반영
-    const audioAmount = dto.add_music ? 1000 : 0; // 오디오 1개
-    const videoAmount = dto.add_video ? 2000 : 0; // 영상 1개
+    const imageAmount = dto.headcount * photoCount * 500; // 인원 × 이미지 갯수 × 500원
+    const audioAmount = dto.add_music ? dto.headcount * 1000 : 0; // 인원 × 1,000원
+    const videoAmount = dto.add_video ? dto.headcount * 2000 : 0; // 인원 × 2,000원
 
     const totalAmount =
       timeOptionAmount + imageAmount + audioAmount + videoAmount;

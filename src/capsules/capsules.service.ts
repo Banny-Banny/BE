@@ -301,6 +301,12 @@ export class CapsulesService {
 
     const slots = await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(User);
+      const capsuleRepo = manager.getRepository(Capsule);
+      const entryRepo = manager.getRepository(CapsuleEntry);
+      const slotRepo = manager.getRepository(CapsuleParticipantSlot);
+      const accessLogRepo = manager.getRepository(CapsuleAccessLog);
+
+      // 1. 사용자 조회 및 잠금
       const targetUser = await userRepo.findOne({
         where: { id: user.id },
         lock: { mode: 'pessimistic_write' },
@@ -310,6 +316,40 @@ export class CapsulesService {
         throw new ConflictException('USER_NOT_FOUND');
       }
 
+      // 2. 사용자가 작성한 모든 캡슐 조회 (삭제되지 않은 것만)
+      const userCapsules = await capsuleRepo.find({
+        where: {
+          userId: user.id,
+          deletedAt: IsNull(),
+        },
+      });
+
+      if (userCapsules.length > 0) {
+        const capsuleIds = userCapsules.map((c) => c.id);
+
+        // 3. 관련 데이터 삭제
+        // 3-1. CapsuleEntry 삭제
+        await entryRepo.delete({
+          capsuleId: In(capsuleIds),
+        });
+
+        // 3-2. CapsuleParticipantSlot 삭제
+        await slotRepo.delete({
+          capsuleId: In(capsuleIds),
+        });
+
+        // 3-3. CapsuleAccessLog 삭제
+        await accessLogRepo.delete({
+          capsuleId: In(capsuleIds),
+        });
+
+        // 3-4. 캡슐 소프트 삭제
+        await capsuleRepo.softDelete({
+          id: In(capsuleIds),
+        });
+      }
+
+      // 4. eggSlots를 기본값(3)으로 초기화
       targetUser.eggSlots = this.DEFAULT_EGG_SLOTS;
       const saved = await userRepo.save(targetUser);
       return saved.eggSlots;

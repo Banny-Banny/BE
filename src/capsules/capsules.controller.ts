@@ -191,9 +191,17 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그 슬롯 초기화',
     description:
-      '현재 사용자의 이스터에그 작성 슬롯을 기본값(3)으로 초기화합니다.',
+      '현재 사용자가 작성한 모든 이스터에그를 삭제하고, 슬롯을 기본값(3)으로 초기화합니다. 관련된 모든 데이터(엔트리, 슬롯, 조회 로그)가 함께 삭제됩니다.',
   })
-  @ApiResponse({ status: 200, description: '초기화 성공' })
+  @ApiResponse({
+    status: 200,
+    description: '초기화 성공',
+    schema: {
+      example: {
+        egg_slots: 3,
+      },
+    },
+  })
   @ApiResponse({ status: 401, description: '인증 실패' })
   async resetSlots(@CurrentUser() user: User) {
     const eggSlots = await this.capsulesService.resetEggSlots(user);

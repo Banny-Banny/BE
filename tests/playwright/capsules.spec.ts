@@ -555,3 +555,180 @@ test('이스터에그 생성 시 경도 없으면 400', async () => {
 
   await cleanupUser(id);
 });
+
+test('슬롯 초기화 201: 캡슐이 없는 경우', async () => {
+  const { id, token } = await createUser(2);
+
+  const res = await api.post('/api/capsules/slots/reset', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  expect(body.egg_slots).toBe(3);
+
+  // DB에서 실제로 3으로 변경되었는지 확인
+  const { rows } = await client.query(
+    'SELECT egg_slots FROM users WHERE id = $1',
+    [id],
+  );
+  expect(rows[0].egg_slots).toBe(3);
+
+  await cleanupUser(id);
+});
+
+test('슬롯 초기화 201: 캡슐이 있는 경우 모두 삭제', async () => {
+  const { id, token } = await createUser(3);
+
+  // 캡슐 2개 생성
+  const cap1Res = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'capsule 1',
+      latitude: 37.5665,
+      longitude: 126.978,
+    },
+  });
+  expect(cap1Res.status()).toBe(201);
+  const cap1 = await cap1Res.json();
+
+  const cap2Res = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'capsule 2',
+      latitude: 37.5665,
+      longitude: 126.978,
+    },
+  });
+  expect(cap2Res.status()).toBe(201);
+  const cap2 = await cap2Res.json();
+
+  // 슬롯이 1 남았는지 확인
+  const { rows: beforeRows } = await client.query(
+    'SELECT egg_slots FROM users WHERE id = $1',
+    [id],
+  );
+  expect(beforeRows[0].egg_slots).toBe(1);
+
+  // 초기화 요청
+  const resetRes = await api.post('/api/capsules/slots/reset', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  expect(resetRes.status()).toBe(201);
+  const body = await resetRes.json();
+  expect(body.egg_slots).toBe(3);
+
+  // 슬롯이 3으로 복구되었는지 확인
+  const { rows: afterRows } = await client.query(
+    'SELECT egg_slots FROM users WHERE id = $1',
+    [id],
+  );
+  expect(afterRows[0].egg_slots).toBe(3);
+
+  // 캡슐이 소프트 삭제되었는지 확인
+  const { rows: capsuleRows } = await client.query(
+    'SELECT id, deleted_at FROM capsules WHERE id = ANY($1::uuid[])',
+    [[cap1.id, cap2.id]],
+  );
+  expect(capsuleRows.length).toBe(2);
+  capsuleRows.forEach((row) => {
+    expect(row.deleted_at).not.toBeNull();
+  });
+
+  await cleanupUser(id);
+});
+
+test('슬롯 초기화 201: 관련 데이터(entry, slot, access_log) 모두 삭제', async () => {
+  const owner = await createUser(3);
+  const viewer = await createUser(3);
+  await connectFriends(owner.id, viewer.id);
+
+  // 캡슐 생성
+  const capRes = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${owner.token}` },
+    data: {
+      title: 'test capsule',
+      latitude: 37.0,
+      longitude: 127.0,
+    },
+  });
+  expect(capRes.status()).toBe(201);
+  const capsule = await capRes.json();
+
+  // viewer가 조회하여 access_log 생성
+  await api.get(`/api/capsules/${capsule.id}?lat=37.0&lng=127.0`, {
+    headers: { Authorization: `Bearer ${viewer.token}` },
+  });
+
+  // access_log가 생성되었는지 확인
+  const { rows: logsBefore } = await client.query(
+    'SELECT * FROM capsule_access_logs WHERE capsule_id = $1',
+    [capsule.id],
+  );
+  expect(logsBefore.length).toBeGreaterThan(0);
+
+  // 슬롯 초기화
+  const resetRes = await api.post('/api/capsules/slots/reset', {
+    headers: { Authorization: `Bearer ${owner.token}` },
+  });
+  expect(resetRes.status()).toBe(201);
+
+  // access_log가 삭제되었는지 확인
+  const { rows: logsAfter } = await client.query(
+    'SELECT * FROM capsule_access_logs WHERE capsule_id = $1',
+    [capsule.id],
+  );
+  expect(logsAfter.length).toBe(0);
+
+  await cleanupUser(owner.id);
+  await cleanupUser(viewer.id);
+  await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('슬롯 초기화 후 다시 캡슐 생성 가능', async () => {
+  const { id, token } = await createUser(3);
+
+  // 캡슐 3개 생성 (슬롯 모두 사용)
+  for (let i = 0; i < 3; i++) {
+    const res = await api.post('/api/capsules', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        title: `capsule ${i + 1}`,
+        latitude: 37.5665,
+        longitude: 126.978,
+      },
+    });
+    expect(res.status()).toBe(201);
+  }
+
+  // 슬롯이 0이 되어 생성 불가
+  const failRes = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'should fail',
+      latitude: 37.5665,
+      longitude: 126.978,
+    },
+  });
+  expect(failRes.status()).toBe(409);
+
+  // 슬롯 초기화
+  const resetRes = await api.post('/api/capsules/slots/reset', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(resetRes.status()).toBe(201);
+
+  // 다시 캡슐 생성 가능
+  const successRes = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'new capsule after reset',
+      latitude: 37.5665,
+      longitude: 126.978,
+    },
+  });
+  expect(successRes.status()).toBe(201);
+
+  await cleanupUser(id);
+});
