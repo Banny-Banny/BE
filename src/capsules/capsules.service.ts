@@ -350,6 +350,18 @@ export class CapsulesService {
       }
     }
 
+    // 이스터에그 생성 시 위도/경도 필수 검증
+    const isEasterEgg =
+      !product || product.productType === ProductType.EASTER_EGG;
+    if (isEasterEgg) {
+      if (dto.latitude === undefined || dto.latitude === null) {
+        throw new BadRequestException('LATITUDE_REQUIRED_FOR_EASTER_EGG');
+      }
+      if (dto.longitude === undefined || dto.longitude === null) {
+        throw new BadRequestException('LONGITUDE_REQUIRED_FOR_EASTER_EGG');
+      }
+    }
+
     const hasLegacyMedia =
       (dto.media_urls && dto.media_urls.length > 0) ||
       (dto.media_types && dto.media_types.length > 0);
@@ -411,7 +423,7 @@ export class CapsulesService {
   async findOne(user: User, id: string, query: GetCapsuleQueryDto) {
     const capsule = await this.capsuleRepository.findOne({
       where: { id },
-      relations: { product: true },
+      relations: { product: true, user: true },
     });
 
     if (!capsule || capsule.deletedAt) {
@@ -461,21 +473,50 @@ export class CapsulesService {
         : [];
     const mediaItems = this.buildMediaItems(capsule, mediaEntities);
 
+    // 조회 로그 기록
+    await this.logCapsuleAccess(capsule.id, user.id);
+
+    // 조회자 목록 조회
+    const accessLogs = await this.accessLogRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: { viewer: true },
+      order: { viewedAt: 'ASC' },
+    });
+
+    const viewers = accessLogs.map((log) => ({
+      id: log.viewer.id,
+      nickname: log.viewer.nickname,
+      profile_img: log.viewer.profileImg,
+      viewed_at: log.viewedAt,
+    }));
+
+    // 작성자 정보
+    const author = capsule.user
+      ? {
+          id: capsule.user.id,
+          nickname: capsule.user.nickname,
+          profile_img: capsule.user.profileImg,
+        }
+      : null;
+
     return {
       id: capsule.id,
       title: capsule.title,
       content: isLocked ? null : capsule.content,
-      openAt: capsule.openAt,
-      isLocked,
-      viewLimit: capsule.viewLimit,
-      viewCount: capsule.viewCount,
-      mediaTypes: capsule.mediaTypes,
-      mediaUrls: capsule.mediaUrls,
-      mediaItems,
+      open_at: capsule.openAt,
+      is_locked: isLocked,
+      view_limit: capsule.viewLimit,
+      view_count: capsule.viewCount,
+      media_types: capsule.mediaTypes,
+      media_urls: capsule.mediaUrls,
+      media_items: mediaItems,
       product: capsule.product,
       latitude: capsule.latitude,
       longitude: capsule.longitude,
-      textBlocks: isLocked ? null : capsule.textBlocks,
+      text_blocks: isLocked ? null : capsule.textBlocks,
+      author,
+      viewers,
+      created_at: capsule.createdAt,
     };
   }
 

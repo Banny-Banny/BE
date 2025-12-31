@@ -142,7 +142,7 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그(캡슐) 생성',
     description:
-      '제목(100자)/텍스트 블록(각 500자)/미디어(media_ids 또는 media_urls/types), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 슬롯이 없으면 409.',
+      '제목(100자)/텍스트 블록(각 500자)/미디어(media_ids 또는 media_urls/types), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409.',
   })
   @ApiResponse({ status: 201, description: '생성 성공' })
   @ApiResponse({ status: 400, description: '검증 실패' })
@@ -205,9 +205,54 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그(캡슐) 조회',
     description:
-      '위치 도달 + 친구(connected)일 때만 열람 가능. lat/lng 쿼리로 위치 검증.',
+      '위치 도달 + 친구(connected)일 때만 열람 가능. lat/lng 쿼리로 위치 검증. 작성자 정보, 조회자 목록, 생성일시를 포함하여 반환합니다.',
   })
-  @ApiResponse({ status: 200, description: '조회 성공' })
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    schema: {
+      example: {
+        id: 'uuid',
+        title: 'capsule',
+        content: 'content',
+        open_at: '2025-12-31T00:00:00.000Z',
+        is_locked: true,
+        view_limit: 1,
+        view_count: 1,
+        media_types: ['IMAGE'],
+        media_urls: ['https://...'],
+        media_items: [
+          {
+            media_id: 'uuid',
+            type: 'IMAGE',
+            object_key: 'https://...',
+          },
+        ],
+        product: {
+          id: 'uuid',
+          product_type: 'EASTER_EGG',
+          max_media_count: 3,
+        },
+        latitude: 37.5665,
+        longitude: 126.978,
+        text_blocks: [{ order: 0, content: 'text' }],
+        author: {
+          id: 'uuid',
+          nickname: 'author',
+          profile_img: 'https://...',
+        },
+        viewers: [
+          {
+            id: 'uuid',
+            nickname: 'viewer',
+            profile_img: 'https://...',
+            viewed_at: '2025-01-01T00:00:00.000Z',
+          },
+        ],
+        created_at: '2025-01-01T00:00:00.000Z',
+      },
+    },
+  })
   @ApiResponse({ status: 400, description: '잘못된 id 또는 좌표' })
   @ApiResponse({ status: 401, description: '인증 실패' })
   @ApiResponse({ status: 403, description: '위치 미도달 또는 친구 아님' })
@@ -218,21 +263,18 @@ export class CapsulesController {
     @Query() query: GetCapsuleQueryDto,
   ) {
     const capsule = await this.capsulesService.findOne(user, params.id, query);
-    const mediaItems = extractMediaItems(
-      capsule as { mediaItems?: MediaItemResponse[] },
-    );
 
     return {
       id: capsule.id,
       title: capsule.title,
       content: capsule.content,
-      open_at: capsule.openAt,
-      is_locked: capsule.isLocked,
-      view_limit: capsule.viewLimit,
-      view_count: capsule.viewCount,
-      media_types: capsule.mediaTypes,
-      media_urls: capsule.mediaUrls,
-      media_items: mediaItems,
+      open_at: capsule.open_at,
+      is_locked: capsule.is_locked,
+      view_limit: capsule.view_limit,
+      view_count: capsule.view_count,
+      media_types: capsule.media_types,
+      media_urls: capsule.media_urls,
+      media_items: capsule.media_items,
       product: capsule.product
         ? {
             id: capsule.product.id,
@@ -242,7 +284,10 @@ export class CapsulesController {
         : null,
       latitude: capsule.latitude,
       longitude: capsule.longitude,
-      text_blocks: capsule.textBlocks,
+      text_blocks: capsule.text_blocks,
+      author: capsule.author,
+      viewers: capsule.viewers,
+      created_at: capsule.created_at,
     };
   }
 }

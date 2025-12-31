@@ -149,6 +149,8 @@ test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
       media_types: ['IMAGE'],
       open_at: openAt,
       view_limit: 1,
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
 
@@ -184,6 +186,18 @@ test('캡슐 조회 200 (친구+위치 도달)', async () => {
   const body = await res.json();
   expect(body.id).toBe(capId);
   expect(body.product?.product_type).toBe('EASTER_EGG');
+  // 작성자 정보 확인
+  expect(body.author).toBeTruthy();
+  expect(body.author.id).toBe(owner.id);
+  expect(body.author.nickname).toBeTruthy();
+  // 조회자 목록 확인 (현재 조회한 viewer 포함)
+  expect(Array.isArray(body.viewers)).toBe(true);
+  expect(body.viewers.length).toBeGreaterThan(0);
+  const currentViewer = body.viewers.find((v) => v.id === viewer.id);
+  expect(currentViewer).toBeTruthy();
+  expect(currentViewer.viewed_at).toBeTruthy();
+  // 생성일시 확인
+  expect(body.created_at).toBeTruthy();
 
   await cleanupUser(owner.id);
   await cleanupUser(viewer.id);
@@ -257,6 +271,8 @@ test('슬롯 부족 시 409', async () => {
     data: {
       title: 'slot exhausted',
       open_at: openAt,
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
 
@@ -277,6 +293,8 @@ test('open_at이 과거면 400', async () => {
     data: {
       title: 'past open',
       open_at: past,
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
 
@@ -391,6 +409,8 @@ test('media type가 IMAGE인데 url 없음 → 400', async () => {
       media_types: ['IMAGE'],
       media_urls: [null],
       open_at: openAt,
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
 
@@ -415,6 +435,8 @@ test('EASTER_EGG 상품 max_media_count 초과시 400', async () => {
       media_types: ['IMAGE', 'IMAGE'], // 2개 > limit 1
       media_urls: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'],
       open_at: openAt,
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
 
@@ -440,6 +462,8 @@ test('media_ids + text_blocks로 캡슐 생성 201', async () => {
         { order: 1, content: '두 번째 메시지' },
       ],
       view_limit: 0,
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
 
@@ -465,12 +489,14 @@ test('media_ids + text_blocks 조회 200 (친구)', async () => {
       title: '친구 조회 캡슐',
       media_ids: [mediaId],
       text_blocks: [{ order: 0, content: '공유 메시지' }],
+      latitude: 37.5665,
+      longitude: 126.978,
     },
   });
   expect(createRes.status()).toBe(201);
   const created = await createRes.json();
 
-  const getRes = await api.get(`/api/capsules/${created.id}`, {
+  const getRes = await api.get(`/api/capsules/${created.id}?lat=37.5665&lng=126.978`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
   });
 
@@ -482,4 +508,50 @@ test('media_ids + text_blocks 조회 200 (친구)', async () => {
   await cleanupUser(owner.id);
   await cleanupUser(viewer.id);
   await cleanupFriendships(owner.id, viewer.id);
+});
+
+test('이스터에그 생성 시 위도 없으면 400', async () => {
+  const { id, token } = await createUser(3);
+  const openAt = new Date(Date.now() + 60_000).toISOString();
+
+  const res = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'no latitude',
+      open_at: openAt,
+      longitude: 126.978,
+    },
+  });
+
+  if (res.status() !== 400) {
+    console.error('no latitude error', res.status(), await res.text());
+  }
+  expect(res.status()).toBe(400);
+  const body = await res.text();
+  expect(body).toContain('LATITUDE_REQUIRED_FOR_EASTER_EGG');
+
+  await cleanupUser(id);
+});
+
+test('이스터에그 생성 시 경도 없으면 400', async () => {
+  const { id, token } = await createUser(3);
+  const openAt = new Date(Date.now() + 60_000).toISOString();
+
+  const res = await api.post('/api/capsules', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      title: 'no longitude',
+      open_at: openAt,
+      latitude: 37.5665,
+    },
+  });
+
+  if (res.status() !== 400) {
+    console.error('no longitude error', res.status(), await res.text());
+  }
+  expect(res.status()).toBe(400);
+  const body = await res.text();
+  expect(body).toContain('LONGITUDE_REQUIRED_FOR_EASTER_EGG');
+
+  await cleanupUser(id);
 });

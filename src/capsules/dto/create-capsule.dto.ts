@@ -13,6 +13,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
 import { MediaType } from '../../common/enums';
 
 export class TextBlockDto {
@@ -37,10 +38,22 @@ export class CreateCapsuleDto {
 
   @IsOptional()
   @IsNumber()
+  @ApiProperty({
+    description: '위도. 이스터에그 생성 시 필수입니다.',
+    required: false,
+    type: Number,
+    example: 37.5665,
+  })
   latitude?: number;
 
   @IsOptional()
   @IsNumber()
+  @ApiProperty({
+    description: '경도. 이스터에그 생성 시 필수입니다.',
+    required: false,
+    type: Number,
+    example: 126.978,
+  })
   longitude?: number;
 
   @IsOptional()
