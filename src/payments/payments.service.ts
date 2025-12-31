@@ -277,7 +277,17 @@ export class PaymentsService {
       });
     });
 
-    const capsule = await this.capsulesService.createFromPaidOrder(order.id);
+    const capsule = await this.capsulesService.createCapsuleWithStepRoom(
+      order.id,
+    );
+
+    // 참여 슬롯 조회 (current_participants 계산용)
+    const currentParticipants = await this.dataSource
+      .getRepository('capsule_participant_slots')
+      .createQueryBuilder('slot')
+      .where('slot.capsule_id = :capsuleId', { capsuleId: capsule.id })
+      .andWhere('slot.user_id IS NOT NULL')
+      .getCount();
 
     return {
       order_id: order.id,
@@ -285,6 +295,16 @@ export class PaymentsService {
       amount: order.totalAmount,
       approved_at: approvedAt.toISOString(),
       capsule_id: capsule.id,
+      step_room: {
+        room_id: capsule.id,
+        invite_code: capsule.inviteCode,
+        capsule_name: capsule.title,
+        open_date: capsule.openAt,
+        deadline: capsule.deadline,
+        participant_count: capsule.viewLimit,
+        current_participants: currentParticipants,
+        created_at: capsule.createdAt,
+      },
     };
   }
 
@@ -548,7 +568,17 @@ export class PaymentsService {
       return pay;
     });
 
-    const capsule = await this.capsulesService.createFromPaidOrder(order.id);
+    const capsule = await this.capsulesService.createCapsuleWithStepRoom(
+      order.id,
+    );
+
+    // 참여 슬롯 조회 (current_participants 계산용)
+    const currentParticipants = await this.dataSource
+      .getRepository('capsule_participant_slots')
+      .createQueryBuilder('slot')
+      .where('slot.capsule_id = :capsuleId', { capsuleId: capsule.id })
+      .andWhere('slot.user_id IS NOT NULL')
+      .getCount();
 
     return {
       order_id: order.id,
@@ -558,6 +588,16 @@ export class PaymentsService {
       approved_at: payment.approvedAt ?? null,
       capsule_id: capsule.id,
       receipt_url: payment.receiptUrl,
+      step_room: {
+        room_id: capsule.id,
+        invite_code: capsule.inviteCode,
+        capsule_name: capsule.title,
+        open_date: capsule.openAt,
+        deadline: capsule.deadline,
+        participant_count: capsule.viewLimit,
+        current_participants: currentParticipants,
+        created_at: capsule.createdAt,
+      },
     };
   }
 

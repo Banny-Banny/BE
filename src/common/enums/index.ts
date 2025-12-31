@@ -51,3 +51,12 @@ export enum FriendStatus {
   CONNECTED = 'CONNECTED', // 친구 수락됨 (맞팔)
   BLOCKED = 'BLOCKED', // 차단함
 }
+
+/**
+ * 대기실 상태 - 결제 완료 후 작성 대기 중인 캡슐
+ */
+export enum RoomStatus {
+  WAITING = 'WAITING', // 작성 대기 중
+  COMPLETED = 'COMPLETED', // 모든 참여자 작성 완료
+  EXPIRED = 'EXPIRED', // 마감시한 경과
+}

@@ -10,7 +10,7 @@ import {
   OneToOne,
   Check,
 } from 'typeorm';
-import { MediaType } from '../common/enums';
+import { MediaType, RoomStatus } from '../common/enums';
 import { User } from './user.entity';
 import { Product } from './product.entity';
 import { CapsuleAccessLog } from './capsule-access-log.entity';
@@ -155,6 +155,33 @@ export class Capsule {
     comment: '현재까지 열람한 인원 수. view_limit 도달 시 마감',
   })
   viewCount: number;
+
+  // 대기실 필드 (결제 완료 후 작성 대기 중인 캡슐)
+  @Column({
+    type: 'varchar',
+    length: 6,
+    unique: true,
+    nullable: true,
+    name: 'invite_code',
+    comment: '대기실 초대 코드 (결제 완료 후 생성)',
+  })
+  inviteCode: string | null;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    comment: '대기실 마감시한 (결제 완료 + 24시간)',
+  })
+  deadline: Date | null;
+
+  @Column({
+    type: 'enum',
+    enum: RoomStatus,
+    nullable: true,
+    name: 'room_status',
+    comment: '대기실 상태 (nullable: 대기실 없음)',
+  })
+  roomStatus: RoomStatus | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -4,14 +4,20 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, In, Repository, IsNull } from 'typeorm';
+import { DataSource, In, Repository, IsNull, EntityManager } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
 import { User } from '../entities/user.entity';
 import { Product, ProductType } from '../entities/product.entity';
 import { Friendship } from '../entities/friendship.entity';
-import { FriendStatus, OrderStatus, TimeOption } from '../common/enums';
+import {
+  FriendStatus,
+  OrderStatus,
+  TimeOption,
+  RoomStatus,
+} from '../common/enums';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { MediaType } from '../common/enums';
 import { GetCapsuleQueryDto } from './dto/get-capsule.dto';
@@ -25,6 +31,10 @@ import {
 } from '../entities';
 import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
 import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
+import {
+  StepRoomResponseDto,
+  StepRoomDetailDto,
+} from './dto/step-room-response.dto';
 
 @Injectable()
 export class CapsulesService {
@@ -1062,6 +1072,264 @@ export class CapsulesService {
       totalSlots,
       usedSlots,
       remainingSlots,
+    };
+  }
+
+  // ==========================================
+  // Step Room (대기실) 관련 메서드
+  // ==========================================
+
+  /**
+   * 초대 코드 생성 (6자리 영숫자, 혼동 문자 제외)
+   */
+  private generateInviteCode(): string {
+    const chars = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+
+  /**
+   * 참여 슬롯 생성
+   */
+  private async createParticipantSlotsForStepRoom(
+    capsuleId: string,
+    hostUserId: string,
+    headcount: number,
+    manager: EntityManager,
+  ): Promise<void> {
+    const slots: Partial<CapsuleParticipantSlot>[] = [];
+
+    for (let i = 0; i < headcount; i++) {
+      const slot: Partial<CapsuleParticipantSlot> = {
+        capsuleId: capsuleId,
+        userId: i === 0 ? hostUserId : null,
+        slotIndex: i,
+        assignedAt: i === 0 ? new Date() : null,
+      };
+      slots.push(slot);
+    }
+
+    await manager.save(CapsuleParticipantSlot, slots);
+  }
+
+  /**
+   * TimeOption에 따른 openAt 계산
+   */
+  private calculateOpenDate(timeOption: TimeOption): Date {
+    const now = new Date();
+    switch (timeOption) {
+      case TimeOption.ONE_WEEK:
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      case TimeOption.ONE_MONTH:
+        return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      case TimeOption.ONE_YEAR:
+        return new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+      case TimeOption.TWO_YEAR:
+        return new Date(now.getTime() + 2 * 365 * 24 * 60 * 60 * 1000);
+      case TimeOption.THREE_YEAR:
+        return new Date(now.getTime() + 3 * 365 * 24 * 60 * 60 * 1000);
+      default:
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
+  }
+
+  /**
+   * 결제 완료된 주문으로 캡슐(대기실) 생성
+   */
+  async createCapsuleWithStepRoom(orderId: string): Promise<Capsule> {
+    return this.dataSource.transaction(async (manager) => {
+      // 1. 주문 조회 및 검증
+      const order = await manager.findOne(Order, {
+        where: { id: orderId },
+        relations: ['product', 'user'],
+      });
+
+      if (!order) {
+        throw new NotFoundException('주문을 찾을 수 없습니다');
+      }
+
+      if (order.status !== OrderStatus.PAID) {
+        throw new BadRequestException(
+          '결제 완료된 주문만 대기실을 생성할 수 있습니다',
+        );
+      }
+
+      // 2. 기존 캡슐 확인 (중복 생성 방지)
+      const existing = await manager.findOne(Capsule, {
+        where: { orderId: orderId },
+      });
+
+      if (existing) {
+        return existing;
+      }
+
+      // 3. 상품 검증
+      if (!order.product.isActive) {
+        throw new BadRequestException('비활성 상품입니다');
+      }
+
+      if (order.product.productType !== ProductType.TIME_CAPSULE) {
+        throw new BadRequestException(
+          '타임캡슐 상품만 대기실을 생성할 수 있습니다',
+        );
+      }
+
+      // 4. 인원수 검증
+      if (order.headcount < 1 || order.headcount > 10) {
+        throw new BadRequestException('인원수는 1~10명이어야 합니다');
+      }
+
+      // 5. CUSTOM 시 customOpenAt 필수 확인
+      if (order.timeOption === TimeOption.CUSTOM && !order.customOpenAt) {
+        throw new BadRequestException(
+          'CUSTOM 옵션은 customOpenAt이 필요합니다',
+        );
+      }
+
+      // 6. 초대 코드 생성 (최대 5번 재시도)
+      let inviteCode = '';
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (attempts < maxAttempts) {
+        inviteCode = this.generateInviteCode();
+        const exists = await manager.findOne(Capsule, {
+          where: { inviteCode: inviteCode },
+        });
+
+        if (!exists) break;
+        attempts++;
+      }
+
+      if (attempts === maxAttempts) {
+        throw new InternalServerErrorException('초대 코드 생성 실패');
+      }
+
+      // 7. Deadline 계산 (현재 시각 + 24시간)
+      // 결제 승인 직후 호출되므로 현재 시각 = 결제 승인 시각
+      const deadline = new Date();
+      deadline.setHours(deadline.getHours() + 24);
+
+      // 8. 열람 시점 계산
+      const openAt =
+        order.customOpenAt || this.calculateOpenDate(order.timeOption);
+
+      // 9. 캡슐 생성 (대기실 포함)
+      const capsule = manager.create(Capsule, {
+        userId: order.userId,
+        productId: order.productId,
+        orderId: order.id,
+        title: '나의 타임캡슐',
+        content: null,
+        mediaUrls: null,
+        mediaItemIds: null,
+        mediaTypes: null,
+        textBlocks: null,
+        openAt: openAt,
+        isLocked: true,
+        viewLimit: order.headcount,
+        viewCount: 0,
+        // 대기실 필드
+        inviteCode: inviteCode,
+        deadline: deadline,
+        roomStatus: RoomStatus.WAITING,
+      });
+
+      await manager.save(capsule);
+
+      // 10. 참여 슬롯 생성
+      await this.createParticipantSlotsForStepRoom(
+        capsule.id,
+        order.userId,
+        order.headcount,
+        manager,
+      );
+
+      return capsule;
+    });
+  }
+
+  /**
+   * 초대 코드로 캡슐(대기실) 조회
+   */
+  async findCapsuleByInviteCode(
+    inviteCode: string,
+  ): Promise<StepRoomResponseDto> {
+    const capsule = await this.capsuleRepository.findOne({
+      where: { inviteCode: inviteCode.toUpperCase() },
+    });
+
+    if (!capsule) {
+      throw new NotFoundException('존재하지 않는 초대 코드입니다');
+    }
+
+    // 참여자 수 조회
+    const slots = await this.slotRepository.find({
+      where: { capsuleId: capsule.id },
+    });
+
+    const currentParticipants = slots.filter((s) => s.userId !== null).length;
+    const isDeadlinePassed = capsule.deadline && new Date() > capsule.deadline;
+    const isFull = currentParticipants >= capsule.viewLimit;
+
+    return {
+      room_id: capsule.id,
+      capsule_name: capsule.title,
+      open_date: capsule.openAt!,
+      deadline: capsule.deadline!,
+      participant_count: capsule.viewLimit,
+      current_participants: currentParticipants,
+      status: isDeadlinePassed ? 'EXPIRED' : capsule.roomStatus || 'WAITING',
+      is_joinable:
+        !isDeadlinePassed &&
+        !isFull &&
+        capsule.roomStatus === RoomStatus.WAITING,
+    };
+  }
+
+  /**
+   * 대기실 상세 조회 (참여자 전용)
+   */
+  async getStepRoomDetail(
+    capsuleId: string,
+    userId: string,
+  ): Promise<StepRoomDetailDto> {
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id: capsuleId },
+    });
+
+    if (!capsule) {
+      throw new NotFoundException('대기실을 찾을 수 없습니다');
+    }
+
+    const slots = await this.slotRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: ['user'],
+      order: { slotIndex: 'ASC' },
+    });
+
+    // 권한 확인: 참여자만 조회 가능
+    const isParticipant = slots.some((s) => s.userId === userId);
+    if (!isParticipant) {
+      throw new ForbiddenException('참여자만 조회할 수 있습니다');
+    }
+
+    return {
+      room_id: capsule.id,
+      capsule_name: capsule.title,
+      open_date: capsule.openAt!,
+      deadline: capsule.deadline!,
+      status: capsule.roomStatus || 'WAITING',
+      slots: slots.map((slot) => ({
+        slot_number: slot.slotIndex + 1,
+        user_id: slot.userId,
+        is_host: slot.slotIndex === 0,
+        status: slot.userId ? 'ACCEPTED' : 'PENDING',
+        nickname: slot.user?.nickname || null,
+      })),
     };
   }
 }

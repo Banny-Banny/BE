@@ -23,6 +23,10 @@ import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
 import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
 import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 import { MediaType } from '../common/enums';
+import {
+  StepRoomResponseDto,
+  StepRoomDetailDto,
+} from './dto/step-room-response.dto';
 
 type MediaItemResponse = {
   media_id: string | null;
@@ -206,6 +210,42 @@ export class CapsulesController {
   async resetSlots(@CurrentUser() user: User) {
     const eggSlots = await this.capsulesService.resetEggSlots(user);
     return { egg_slots: eggSlots };
+  }
+
+  @Get('step-rooms')
+  @ApiOperation({ summary: '초대 코드로 대기실 조회' })
+  @ApiQuery({
+    name: 'invite_code',
+    required: true,
+    description: '초대 코드 (6자리)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '대기실 정보 조회 성공',
+    type: StepRoomResponseDto,
+  })
+  @ApiResponse({ status: 404, description: '존재하지 않는 초대 코드' })
+  async getStepRoomByInviteCode(
+    @Query('invite_code') inviteCode: string,
+  ): Promise<StepRoomResponseDto> {
+    return this.capsulesService.findCapsuleByInviteCode(inviteCode);
+  }
+
+  @Get('step-rooms/:capsuleId')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: '대기실 상세 조회 (참여자 전용)' })
+  @ApiResponse({
+    status: 200,
+    description: '대기실 상세 정보 조회 성공',
+    type: StepRoomDetailDto,
+  })
+  @ApiResponse({ status: 403, description: '참여자만 조회 가능' })
+  @ApiResponse({ status: 404, description: '대기실을 찾을 수 없음' })
+  async getStepRoomDetail(
+    @Param('capsuleId') capsuleId: string,
+    @CurrentUser() user: User,
+  ): Promise<StepRoomDetailDto> {
+    return this.capsulesService.getStepRoomDetail(capsuleId, user.id);
   }
 
   @Get(':id')
