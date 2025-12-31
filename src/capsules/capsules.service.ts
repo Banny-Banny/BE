@@ -566,6 +566,12 @@ export class CapsulesService {
         capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
       const mediaItems = this.buildMediaItems(capsule);
 
+      // type 필드 결정: product가 있으면 productType 사용, 없으면 기본값 EASTER_EGG
+      const capsuleType =
+        capsule.product?.productType ?? ProductType.EASTER_EGG;
+      // 본인 캡슐 여부 확인
+      const isMine = capsule.userId === user.id;
+
       return {
         id: capsule.id,
         title: capsule.title,
@@ -581,6 +587,8 @@ export class CapsulesService {
           distance !== null && Number.isFinite(distance)
             ? Math.round(distance * 10) / 10
             : null,
+        type: capsuleType,
+        is_mine: isMine,
         media_types: capsule.mediaTypes,
         media_urls: capsule.mediaUrls,
         media_items: mediaItems,

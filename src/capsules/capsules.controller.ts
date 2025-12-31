@@ -46,19 +46,14 @@ export class CapsulesController {
   @Get()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary: '이스터에그(캡슐) 위치 기반 목록',
+    summary: '캡슐(이스터에그/타임캡슐) 위치 기반 목록',
     description:
-      'lat/lng 필수. radius_m(기본 300m), 친구/반경/소진 필터로 접근 가능한 캡슐 목록을 반환합니다.',
+      'lat/lng 필수. radius_m(기본 300m), 친구/반경/소진 필터로 접근 가능한 캡슐 목록을 반환합니다. type 필드로 EASTER_EGG와 TIME_CAPSULE을 구분합니다.',
   })
   @ApiResponse({ status: 200, description: '목록 조회 성공' })
   @ApiResponse({ status: 400, description: '좌표/반경/limit 검증 실패' })
   @ApiResponse({ status: 401, description: '인증 실패' })
   @ApiResponse({ status: 403, description: '시스템 정책 차단' })
-  @ApiOperation({
-    summary: '이스터에그(캡슐) 위치 기반 목록',
-    description:
-      'lat/lng 필수. radius_m(기본 300m), 친구/반경/소진 필터로 접근 가능한 캡슐 목록을 반환합니다.',
-  })
   @ApiResponse({
     status: 200,
     description: '목록 조회 성공',
@@ -77,6 +72,8 @@ export class CapsulesController {
             latitude: 37.12,
             longitude: 127.12,
             distance_m: 120.5,
+            type: 'EASTER_EGG',
+            is_mine: false,
             media_types: ['IMAGE'],
             media_urls: ['https://...'],
             product: {
