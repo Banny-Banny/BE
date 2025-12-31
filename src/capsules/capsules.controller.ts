@@ -21,6 +21,7 @@ import { CapsulesService } from './capsules.service';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
 import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
+import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 import { MediaType } from '../common/enums';
 
 type MediaItemResponse = {
@@ -167,6 +168,25 @@ export class CapsulesController {
       media_items: mediaItems,
       text_blocks: capsule.textBlocks,
     };
+  }
+
+  @Get('slots')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '남은 캡슐 슬롯 조회',
+    description: '현재 사용자가 생성 가능한 남은 캡슐 개수를 조회합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '슬롯 정보 조회 성공',
+    type: GetCapsuleSlotsResponseDto,
+  })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 404, description: '사용자를 찾을 수 없음' })
+  async getCapsuleSlots(
+    @CurrentUser() user: User,
+  ): Promise<GetCapsuleSlotsResponseDto> {
+    return this.capsulesService.getCapsuleSlots(user.id);
   }
 
   @Post('slots/reset')

@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, Repository, IsNull } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
 import { User } from '../entities/user.entity';
 import { Product, ProductType } from '../entities/product.entity';
@@ -24,6 +24,7 @@ import {
   Order,
 } from '../entities';
 import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
+import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 
 @Injectable()
 export class CapsulesService {
@@ -936,6 +937,42 @@ export class CapsulesService {
       wrote_at: result.savedEntry.createdAt,
       content: result.savedEntry.content,
       media_items: this.buildEntryMediaItems(result.savedEntry, mediaMap),
+    };
+  }
+
+  /**
+   * 사용자의 남은 캡슐 슬롯 개수 조회
+   * @param userId 사용자 ID
+   * @returns 전체 슬롯 수, 사용 중인 슬롯 수, 남은 슬롯 수
+   */
+  async getCapsuleSlots(userId: string): Promise<GetCapsuleSlotsResponseDto> {
+    // 1. 사용자 조회
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 2. 전체 슬롯 수
+    const totalSlots = user.eggSlots;
+
+    // 3. 사용 중인 슬롯 수 (삭제되지 않은 캡슐 개수)
+    const usedSlots = await this.capsuleRepository.count({
+      where: {
+        userId,
+        deletedAt: IsNull(),
+      },
+    });
+
+    // 4. 남은 슬롯 수 계산 (음수 방지)
+    const remainingSlots = Math.max(0, totalSlots - usedSlots);
+
+    return {
+      totalSlots,
+      usedSlots,
+      remainingSlots,
     };
   }
 }

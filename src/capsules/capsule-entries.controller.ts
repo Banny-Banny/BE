@@ -1,12 +1,10 @@
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
@@ -57,4 +55,3 @@ export class CapsuleEntriesController {
     return this.capsulesService.createCapsuleEntry(user, params.id, dto);
   }
 }
-

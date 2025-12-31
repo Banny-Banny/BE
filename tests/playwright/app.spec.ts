@@ -4,7 +4,7 @@ let api: APIRequestContext;
 
 test.beforeAll(async () => {
   api = await request.newContext({
-    baseURL: process.env.API_BASE_URL ?? 'http://localhost:3000',
+    baseURL: process.env.TEST_API_BASE_URL ?? 'http://localhost:3000',
   });
 });
 
