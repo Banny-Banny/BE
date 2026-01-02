@@ -59,4 +59,5 @@ export enum RoomStatus {
   WAITING = 'WAITING', // 작성 대기 중
   COMPLETED = 'COMPLETED', // 모든 참여자 작성 완료
   EXPIRED = 'EXPIRED', // 마감시한 경과
+  BURIED = 'BURIED', // 매장 완료
 }

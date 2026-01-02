@@ -183,6 +183,22 @@ export class Capsule {
   })
   roomStatus: RoomStatus | null;
 
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'buried_at',
+    comment: '캡슐이 매장된 시각',
+  })
+  buriedAt: Date | null;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    name: 'is_auto_submitted',
+    comment: '자동 제출 여부',
+  })
+  isAutoSubmitted: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

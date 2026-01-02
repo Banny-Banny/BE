@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { Capsule } from './capsule.entity';
 import { User } from './user.entity';
+import { Media } from './media.entity';
 
 @Entity('capsule_participant_slots')
 @Unique(['capsuleId', 'slotIndex'])
@@ -35,6 +36,55 @@ export class CapsuleParticipantSlot {
   })
   assignedAt: Date | null;
 
+  @Column({
+    type: 'varchar',
+    length: 50,
+    nullable: true,
+    comment: '참여자 닉네임 (저장 시점 스냅샷)',
+  })
+  nickname: string | null;
+
+  @Column({
+    type: 'text',
+    name: 'text_message',
+    nullable: true,
+    comment: '참여자가 작성한 텍스트 메시지',
+  })
+  textMessage: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ['PENDING', 'COMPLETED'],
+    default: 'PENDING',
+    comment: '작성 상태 (PENDING: 미작성, COMPLETED: 작성완료)',
+  })
+  status: 'PENDING' | 'COMPLETED';
+
+  @Column({
+    type: 'uuid',
+    array: true,
+    name: 'image_ids',
+    nullable: true,
+    comment: '업로드된 이미지 Media ID 배열',
+  })
+  imageIds: string[] | null;
+
+  @Column({
+    type: 'uuid',
+    name: 'music_id',
+    nullable: true,
+    comment: '업로드된 음성 Media ID',
+  })
+  musicId: string | null;
+
+  @Column({
+    type: 'uuid',
+    name: 'video_id',
+    nullable: true,
+    comment: '업로드된 동영상 Media ID',
+  })
+  videoId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
@@ -52,5 +102,13 @@ export class CapsuleParticipantSlot {
   })
   @JoinColumn({ name: 'user_id' })
   user: User | null;
+
+  @ManyToOne(() => Media, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'music_id' })
+  music: Media | null;
+
+  @ManyToOne(() => Media, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'video_id' })
+  video: Media | null;
 }
 

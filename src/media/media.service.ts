@@ -18,6 +18,16 @@ import { PresignMediaDto } from './dto/presign-media.dto';
 import { CompleteMediaDto } from './dto/complete-media.dto';
 import { randomUUID } from 'crypto';
 
+// Multer 파일 타입 정의
+interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const VIDEO_TYPES = ['video/mp4'];
 // MP3, M4A(AAC 컨테이너) 허용
@@ -177,5 +187,73 @@ export class MediaService {
       url,
       expires_in: this.signedUrlTtl,
     };
+  }
+
+  /**
+   * Multer로 받은 파일을 S3에 업로드하고 Media 엔티티 생성
+   */
+  async uploadMulterFile(
+    userId: string,
+    file: MulterFile,
+    type: MediaType,
+  ): Promise<Media> {
+    // 1. Content Type 검증
+    this.validateMulterFile(file, type);
+
+    // 2. Object Key 생성
+    const key = this.buildObjectKey(userId, type, file.originalname);
+
+    // 3. S3에 업로드
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      ...(this.kmsKeyId
+        ? { ServerSideEncryption: 'aws:kms', SSEKMSKeyId: this.kmsKeyId }
+        : {}),
+    });
+
+    await this.s3.send(command);
+
+    // 4. Media 엔티티 생성 및 저장
+    const media = this.mediaRepo.create({
+      userId,
+      objectKey: key,
+      type,
+      contentType: file.mimetype,
+      size: file.size,
+    });
+
+    return await this.mediaRepo.save(media);
+  }
+
+  /**
+   * Multer 파일 검증
+   */
+  private validateMulterFile(file: MulterFile, type: MediaType): void {
+    const isImage = type === MediaType.IMAGE;
+    const isVideo = type === MediaType.VIDEO;
+    const isAudio = type === MediaType.AUDIO;
+
+    if (isImage && !IMAGE_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('INVALID_IMAGE_TYPE');
+    }
+    if (isVideo && !VIDEO_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('INVALID_VIDEO_TYPE');
+    }
+    if (isAudio && !AUDIO_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('INVALID_AUDIO_TYPE');
+    }
+
+    if (isImage && file.size > IMAGE_MAX) {
+      throw new BadRequestException('IMAGE_SIZE_EXCEEDED');
+    }
+    if (isVideo && file.size > VIDEO_MAX) {
+      throw new BadRequestException('VIDEO_SIZE_EXCEEDED');
+    }
+    if (isAudio && file.size > AUDIO_MAX) {
+      throw new BadRequestException('AUDIO_SIZE_EXCEEDED');
+    }
   }
 }

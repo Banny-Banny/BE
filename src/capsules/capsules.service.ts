@@ -36,6 +36,20 @@ import {
   StepRoomDetailDto,
 } from './dto/step-room-response.dto';
 import { StepRoomSettingsResponseDto } from './dto/step-room-settings.dto';
+import { SaveContentDto } from './dto/save-content.dto';
+import { ContentResponseDto } from './dto/content-response.dto';
+import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
+import { MediaService } from '../media/media.service';
+
+// Multer 파일 타입 정의
+interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 @Injectable()
 export class CapsulesService {
@@ -66,6 +80,7 @@ export class CapsulesService {
     private readonly accessLogRepository: Repository<CapsuleAccessLog>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly mediaService: MediaService,
   ) {}
 
   private validateMedia(
@@ -1374,5 +1389,471 @@ export class CapsulesService {
       has_music: order.addMusic,
       has_video: order.addVideo,
     };
+  }
+
+  // ==========================================
+  // 스텝룸 콘텐츠 저장 관련 메서드
+  // ==========================================
+
+  /**
+   * 스텝룸 접근 권한 검증
+   * - 캡슐 소유자
+   * - 이미 참여 중인 사용자
+   * - 초대코드를 가진 사용자
+   */
+  private async validateStepRoomAccess(
+    capsule: Capsule,
+    userId: string,
+    inviteCode?: string,
+  ): Promise<void> {
+    // 1. 캡슐 소유자인지 확인
+    if (capsule.userId === userId) {
+      return;
+    }
+
+    // 2. 이미 참여 슬롯이 있는지 확인
+    const existingSlot = await this.slotRepository.findOne({
+      where: { capsuleId: capsule.id, userId },
+    });
+
+    if (existingSlot) {
+      return;
+    }
+
+    // 3. 초대코드 검증
+    if (capsule.inviteCode && inviteCode === capsule.inviteCode) {
+      return;
+    }
+
+    // 권한 없음
+    throw new ForbiddenException({
+      success: false,
+      error: 'UNAUTHORIZED_ACCESS',
+      message: '이 캡슐에 접근할 권한이 없습니다',
+    });
+  }
+
+  /**
+   * 스텝룸 인원 제한 검증
+   */
+  private async validateStepRoomParticipantLimit(
+    capsule: Capsule,
+    userId: string,
+  ): Promise<void> {
+    // 1. 기존 슬롯이 있으면 인원 제한에서 제외 (재저장 케이스)
+    const existingSlot = await this.slotRepository.findOne({
+      where: { capsuleId: capsule.id, userId },
+    });
+
+    if (existingSlot) {
+      return;
+    }
+
+    // 2. 현재 참여자 수 확인
+    const slots = await this.slotRepository.find({
+      where: { capsuleId: capsule.id },
+    });
+
+    const currentParticipants = slots.filter((s) => s.userId !== null).length;
+    const maxParticipants = capsule.viewLimit;
+
+    if (currentParticipants >= maxParticipants) {
+      throw new ForbiddenException({
+        success: false,
+        error: 'PARTICIPANT_LIMIT_EXCEEDED',
+        message: '캡슐 참여 인원이 초과되었습니다',
+        data: {
+          max_participants: maxParticipants,
+          current_participants: currentParticipants,
+        },
+      });
+    }
+  }
+
+  /**
+   * 스텝룸 미디어 설정 검증
+   */
+  private validateStepRoomMediaSettings(
+    order: Order,
+    files: {
+      images?: MulterFile[];
+      music?: MulterFile[];
+      video?: MulterFile[];
+    },
+  ): void {
+    // 1. 음성 파일 검증
+    if (files.music && files.music.length > 0 && !order.addMusic) {
+      throw new BadRequestException({
+        success: false,
+        error: 'MUSIC_NOT_ALLOWED',
+        message: '이 캡슐은 음성 추가를 허용하지 않습니다',
+      });
+    }
+
+    // 2. 동영상 파일 검증
+    if (files.video && files.video.length > 0 && !order.addVideo) {
+      throw new BadRequestException({
+        success: false,
+        error: 'VIDEO_NOT_ALLOWED',
+        message: '이 캡슐은 동영상 추가를 허용하지 않습니다',
+      });
+    }
+
+    // 3. 이미지 개수 검증
+    if (files.images && files.images.length > 0) {
+      // 1인당 사진 개수 계산
+      const maxImagesPerPerson =
+        order.headcount > 0
+          ? Math.floor(order.photoCount / order.headcount)
+          : 0;
+
+      const uploadedCount = files.images.length;
+
+      if (uploadedCount > maxImagesPerPerson) {
+        throw new BadRequestException({
+          success: false,
+          error: 'IMAGE_LIMIT_EXCEEDED',
+          message: `사진은 최대 ${maxImagesPerPerson}장까지 업로드할 수 있습니다`,
+          data: {
+            max_images: maxImagesPerPerson,
+            uploaded_images: uploadedCount,
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * 스텝룸 콘텐츠 저장 (트랜잭션)
+   */
+  private async saveStepRoomContentTransaction(
+    capsule: Capsule,
+    userId: string,
+    user: User,
+    saveContentDto: SaveContentDto,
+    files: {
+      images?: MulterFile[];
+      music?: MulterFile[];
+      video?: MulterFile[];
+    },
+  ): Promise<ContentResponseDto> {
+    return await this.dataSource.transaction(async (manager) => {
+      const slotRepo = manager.getRepository(CapsuleParticipantSlot);
+
+      // 1. 기존 슬롯 확인
+      let slot = await slotRepo.findOne({
+        where: { capsuleId: capsule.id, userId },
+      });
+
+      // 2. 기존 미디어 삭제 (재저장 케이스)
+      if (slot) {
+        // 기존 이미지 ID 삭제 (Media 엔티티는 유지)
+        slot.imageIds = null;
+        slot.musicId = null;
+        slot.videoId = null;
+      } else {
+        // 3. 새 슬롯 찾기 또는 생성
+        // 빈 슬롯 찾기
+        const emptySlot = await slotRepo.findOne({
+          where: { capsuleId: capsule.id, userId: IsNull() },
+          order: { slotIndex: 'ASC' },
+        });
+
+        if (emptySlot) {
+          slot = emptySlot;
+          slot.userId = userId;
+          slot.assignedAt = new Date();
+        } else {
+          throw new ConflictException({
+            success: false,
+            error: 'SLOTS_FULL',
+            message: '모든 슬롯이 이미 배정되었습니다',
+          });
+        }
+      }
+
+      // 4. 텍스트 메시지 저장
+      slot.nickname = user.nickname || '익명';
+      slot.textMessage = saveContentDto.text_message;
+
+      // 5. 이미지 업로드 및 저장
+      const uploadedImageIds: string[] = [];
+      if (files.images && files.images.length > 0) {
+        for (const imageFile of files.images) {
+          const media = await this.mediaService.uploadMulterFile(
+            userId,
+            imageFile,
+            MediaType.IMAGE,
+          );
+          uploadedImageIds.push(media.id);
+        }
+      }
+      slot.imageIds = uploadedImageIds.length > 0 ? uploadedImageIds : null;
+
+      // 6. 음성 업로드 및 저장
+      if (files.music && files.music.length > 0) {
+        const media = await this.mediaService.uploadMulterFile(
+          userId,
+          files.music[0],
+          MediaType.AUDIO,
+        );
+        slot.musicId = media.id;
+      }
+
+      // 7. 동영상 업로드 및 저장
+      if (files.video && files.video.length > 0) {
+        const media = await this.mediaService.uploadMulterFile(
+          userId,
+          files.video[0],
+          MediaType.VIDEO,
+        );
+        slot.videoId = media.id;
+      }
+
+      // 8. 상태를 COMPLETED로 변경
+      slot.status = 'COMPLETED';
+
+      // 9. 슬롯 저장
+      await slotRepo.save(slot);
+
+      // 10. 응답 생성
+      return {
+        success: true,
+        data: {
+          user_id: userId,
+          nickname: slot.nickname,
+          status: slot.status,
+          saved_at: slot.updatedAt,
+          uploaded_images: uploadedImageIds.length,
+          uploaded_music: !!slot.musicId,
+          uploaded_video: !!slot.videoId,
+        },
+      };
+    });
+  }
+
+  /**
+   * 스텝룸 콘텐츠 저장 메인 메서드
+   */
+  async saveMyContent(
+    capsuleId: string,
+    userId: string,
+    saveContentDto: SaveContentDto,
+    files: {
+      images?: MulterFile[];
+      music?: MulterFile[];
+      video?: MulterFile[];
+    },
+  ): Promise<ContentResponseDto> {
+    // 1. 재사용: ensurePaidCapsuleContext()
+    const { capsule, order } = await this.ensurePaidCapsuleContext(capsuleId);
+
+    // 2. 권한 검증 (새로 구현)
+    await this.validateStepRoomAccess(
+      capsule,
+      userId,
+      saveContentDto.invite_code,
+    );
+
+    // 3. 인원 제한 검증 (새로 구현)
+    await this.validateStepRoomParticipantLimit(capsule, userId);
+
+    // 4. 미디어 설정 검증 (새로 구현)
+    this.validateStepRoomMediaSettings(order, files);
+
+    // 5. 사용자 조회
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: '사용자를 찾을 수 없습니다',
+      });
+    }
+
+    // 6. 콘텐츠 저장 (트랜잭션)
+    return await this.saveStepRoomContentTransaction(
+      capsule,
+      userId,
+      user,
+      saveContentDto,
+      files,
+    );
+  }
+
+  // ==========================================
+  // 타임캡슐 최종 제출 관련 메서드
+  // ==========================================
+
+  /**
+   * 이미 제출된 캡슐인지 확인
+   */
+  private validateNotAlreadySubmitted(capsule: Capsule): void {
+    if (capsule.roomStatus === RoomStatus.BURIED) {
+      throw new ConflictException({
+        success: false,
+        error: 'ALREADY_SUBMITTED',
+        message: '이미 제출된 캡슐입니다',
+      });
+    }
+  }
+
+  /**
+   * 방장 권한 확인
+   */
+  private async validateIsRoomOwner(
+    capsule: Capsule,
+    userId: string,
+  ): Promise<void> {
+    // 1. 캡슐 소유자 확인
+    if (capsule.userId === userId) {
+      return;
+    }
+
+    // 2. 슬롯에서 방장 확인 (slotIndex = 0)
+    const ownerSlot = await this.slotRepository.findOne({
+      where: { capsuleId: capsule.id, slotIndex: 0 },
+    });
+
+    if (ownerSlot && ownerSlot.userId === userId) {
+      return;
+    }
+
+    // 권한 없음
+    throw new ForbiddenException({
+      success: false,
+      error: 'NOT_ROOM_OWNER',
+      message: '방장만 최종 제출할 수 있습니다',
+    });
+  }
+
+  /**
+   * 모든 참여자 완료 상태 확인
+   */
+  private async validateAllParticipantsCompleted(
+    capsuleId: string,
+    headcount: number,
+  ): Promise<{
+    allCompleted: boolean;
+    incompleteSlots: CapsuleParticipantSlot[];
+  }> {
+    const slots = await this.slotRepository.find({
+      where: { capsuleId },
+      relations: ['user'],
+      order: { slotIndex: 'ASC' },
+    });
+
+    // 배정된 슬롯만 확인
+    const assignedSlots = slots.filter((s) => s.userId !== null);
+
+    // 모든 배정된 슬롯이 COMPLETED 상태인지 확인
+    const completedSlots = assignedSlots.filter(
+      (s) => s.status === 'COMPLETED',
+    );
+    const allCompleted =
+      assignedSlots.length === headcount && completedSlots.length === headcount;
+
+    return {
+      allCompleted,
+      incompleteSlots: assignedSlots.filter((s) => s.status !== 'COMPLETED'),
+    };
+  }
+
+  /**
+   * 캡슐 매장 (트랜잭션)
+   */
+  private async buryCapsuleTransaction(
+    capsule: Capsule,
+    latitude: number,
+    longitude: number,
+    headcount: number,
+    isAutoSubmitted: boolean,
+  ): Promise<SubmitCapsuleResponseDto> {
+    return await this.dataSource.transaction(async (manager) => {
+      const capsuleRepo = manager.getRepository(Capsule);
+
+      // 1. 위치 및 상태 업데이트
+      capsule.latitude = latitude;
+      capsule.longitude = longitude;
+      capsule.roomStatus = RoomStatus.BURIED;
+      capsule.buriedAt = new Date();
+      capsule.isAutoSubmitted = isAutoSubmitted;
+
+      await capsuleRepo.save(capsule);
+
+      // 2. 응답 생성
+      // TODO: 주소 변환 API 연동 (Google Maps Geocoding 등)
+      const address = '서울특별시 중구 세종대로 110'; // 임시
+      const buriedAt = capsule.buriedAt || new Date();
+      const openDate = capsule.openAt || new Date();
+
+      return {
+        success: true,
+        data: {
+          capsule_id: capsule.id,
+          status: 'BURIED',
+          location: {
+            latitude: capsule.latitude,
+            longitude: capsule.longitude,
+            address,
+          },
+          buried_at: buriedAt,
+          open_date: openDate,
+          participants: headcount,
+          is_auto_submitted: isAutoSubmitted,
+        },
+      };
+    });
+  }
+
+  /**
+   * 타임캡슐 최종 제출
+   */
+  async submitCapsule(
+    capsuleId: string,
+    userId: string,
+    latitude: number,
+    longitude: number,
+  ): Promise<SubmitCapsuleResponseDto> {
+    // 1. ✅ 재사용: ensurePaidCapsuleContext()
+    const { capsule, headcount } =
+      await this.ensurePaidCapsuleContext(capsuleId);
+
+    // 2. 중복 제출 확인
+    this.validateNotAlreadySubmitted(capsule);
+
+    // 3. 방장 권한 확인
+    await this.validateIsRoomOwner(capsule, userId);
+
+    // 4. 참여자 완료 상태 확인
+    const { allCompleted, incompleteSlots } =
+      await this.validateAllParticipantsCompleted(capsuleId, headcount);
+
+    if (!allCompleted) {
+      const incompleteUsers = incompleteSlots
+        .filter((s) => s.user)
+        .map((s) => s.user!.nickname);
+
+      throw new BadRequestException({
+        success: false,
+        error: 'INCOMPLETE_PARTICIPANTS',
+        message: '모든 참여자가 저장을 완료해야 제출할 수 있습니다',
+        data: {
+          completed: headcount - incompleteSlots.length,
+          total: headcount,
+          incomplete_users:
+            incompleteUsers.length > 0 ? incompleteUsers : ['미참여자'],
+        },
+      });
+    }
+
+    // 5. 캡슐 매장 (트랜잭션)
+    return await this.buryCapsuleTransaction(
+      capsule,
+      latitude,
+      longitude,
+      headcount,
+      false, // 수동 제출
+    );
   }
 }
