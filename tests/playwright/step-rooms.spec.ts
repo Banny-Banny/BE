@@ -344,6 +344,136 @@ test.describe('Step Room Query APIs', () => {
     await cleanupUser(owner.id);
     await cleanupUser(other.id);
   });
+
+  test('대기실 설정값을 조회할 수 있다', async () => {
+    await createProductTimeCapsule();
+    const { id, token } = await createUser();
+    const orderId = await createOrder(token, 4);
+
+    // 결제 승인 및 대기실 생성
+    await api.post('/api/payments/kakao/ready', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { order_id: orderId },
+    });
+    const approveRes = await api.post('/api/payments/kakao/approve', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
+    });
+    const approveBody = await approveRes.json();
+    const roomId = approveBody.step_room.room_id;
+
+    // 설정값 조회
+    const settingsRes = await api.get(
+      `/api/capsules/step-rooms/${roomId}/settings`,
+    );
+
+    expect(settingsRes.status()).toBe(200);
+    const settingsBody = await settingsRes.json();
+
+    // 기본 정보 검증
+    expect(settingsBody.room_id).toBe(roomId);
+    expect(settingsBody.capsule_name).toBe('나의 타임캡슐');
+    expect(settingsBody.open_date).toBeTruthy();
+    expect(settingsBody.open_date).toMatch(/^\d{4}-\d{2}-\d{2}$/); // YYYY-MM-DD 형식
+
+    // 참여 인원 검증
+    expect(settingsBody.max_participants).toBe(4);
+
+    // 1인당 사진 개수 계산 검증 (photo_count=5, headcount=4)
+    expect(settingsBody.max_images_per_person).toBe(1); // Math.floor(5/4) = 1
+
+    // 미디어 타입 허용 여부 검증
+    expect(settingsBody.has_music).toBe(true);
+    expect(settingsBody.has_video).toBe(false);
+
+    await cleanupUser(id);
+  });
+
+  test('1인당 사진 개수가 올바르게 계산된다', async () => {
+    await createProductTimeCapsule();
+    const { id, token } = await createUser();
+
+    // photo_count=3, headcount=2 인 주문 생성
+    const orderRes = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        time_option: '1_WEEK',
+        headcount: 2,
+        photo_count: 3,
+        add_music: false,
+        add_video: true,
+      },
+    });
+    expect(orderRes.status()).toBe(201);
+    const orderBody = await orderRes.json();
+    const orderId = orderBody.order_id;
+
+    // 결제 승인
+    await api.post('/api/payments/kakao/ready', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { order_id: orderId },
+    });
+    const approveRes = await api.post('/api/payments/kakao/approve', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
+    });
+    const approveBody = await approveRes.json();
+    const roomId = approveBody.step_room.room_id;
+
+    // 설정값 조회
+    const settingsRes = await api.get(
+      `/api/capsules/step-rooms/${roomId}/settings`,
+    );
+
+    expect(settingsRes.status()).toBe(200);
+    const settingsBody = await settingsRes.json();
+
+    // 3 / 2 = 1 (Math.floor)
+    expect(settingsBody.max_images_per_person).toBe(1);
+    expect(settingsBody.has_music).toBe(false);
+    expect(settingsBody.has_video).toBe(true);
+
+    await cleanupUser(id);
+  });
+
+  test('존재하지 않는 capsuleId로 설정값 조회 시 404를 반환한다', async () => {
+    const fakeUuid = '00000000-0000-0000-0000-000000000000';
+    const settingsRes = await api.get(
+      `/api/capsules/step-rooms/${fakeUuid}/settings`,
+    );
+
+    expect(settingsRes.status()).toBe(404);
+  });
+
+  test('설정값 조회는 인증 없이 가능하다', async () => {
+    await createProductTimeCapsule();
+    const { id, token } = await createUser();
+    const orderId = await createOrder(token, 2);
+
+    // 결제 승인
+    await api.post('/api/payments/kakao/ready', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { order_id: orderId },
+    });
+    const approveRes = await api.post('/api/payments/kakao/approve', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
+    });
+    const approveBody = await approveRes.json();
+    const roomId = approveBody.step_room.room_id;
+
+    // 인증 헤더 없이 설정값 조회
+    const settingsRes = await api.get(
+      `/api/capsules/step-rooms/${roomId}/settings`,
+    );
+
+    expect(settingsRes.status()).toBe(200);
+    const settingsBody = await settingsRes.json();
+    expect(settingsBody.room_id).toBe(roomId);
+
+    await cleanupUser(id);
+  });
 });
 
 test.describe('Step Room with Toss Payments', () => {

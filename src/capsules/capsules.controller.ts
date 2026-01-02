@@ -27,6 +27,7 @@ import {
   StepRoomResponseDto,
   StepRoomDetailDto,
 } from './dto/step-room-response.dto';
+import { StepRoomSettingsResponseDto } from './dto/step-room-settings.dto';
 
 type MediaItemResponse = {
   media_id: string | null;
@@ -229,6 +230,24 @@ export class CapsulesController {
     @Query('invite_code') inviteCode: string,
   ): Promise<StepRoomResponseDto> {
     return this.capsulesService.findCapsuleByInviteCode(inviteCode);
+  }
+
+  @Get('step-rooms/:capsuleId/settings')
+  @ApiOperation({
+    summary: '대기실 설정값 조회',
+    description:
+      '방장이 인포에서 설정한 값 조회. 프론트엔드에서 업로드 UI 제어에 사용',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '설정값 조회 성공',
+    type: StepRoomSettingsResponseDto,
+  })
+  @ApiResponse({ status: 404, description: '대기실을 찾을 수 없음' })
+  async getStepRoomSettings(
+    @Param('capsuleId') capsuleId: string,
+  ): Promise<StepRoomSettingsResponseDto> {
+    return this.capsulesService.getStepRoomSettings(capsuleId);
   }
 
   @Get('step-rooms/:capsuleId')

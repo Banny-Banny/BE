@@ -35,6 +35,7 @@ import {
   StepRoomResponseDto,
   StepRoomDetailDto,
 } from './dto/step-room-response.dto';
+import { StepRoomSettingsResponseDto } from './dto/step-room-settings.dto';
 
 @Injectable()
 export class CapsulesService {
@@ -1330,6 +1331,48 @@ export class CapsulesService {
         status: slot.userId ? 'ACCEPTED' : 'PENDING',
         nickname: slot.user?.nickname || null,
       })),
+    };
+  }
+
+  /**
+   * 대기실 설정값 조회
+   * 프론트엔드에서 업로드 UI 제어에 사용
+   */
+  async getStepRoomSettings(
+    capsuleId: string,
+  ): Promise<StepRoomSettingsResponseDto> {
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id: capsuleId },
+      relations: ['order'],
+    });
+
+    if (!capsule) {
+      throw new NotFoundException('대기실을 찾을 수 없습니다');
+    }
+
+    if (!capsule.order) {
+      throw new NotFoundException('주문 정보를 찾을 수 없습니다');
+    }
+
+    const order = capsule.order;
+
+    // 1인당 사진 개수 계산
+    const maxImagesPerPerson =
+      order.headcount > 0 ? Math.floor(order.photoCount / order.headcount) : 0;
+
+    // open_date를 YYYY-MM-DD 형식으로 변환
+    const openDate = capsule.openAt
+      ? capsule.openAt.toISOString().split('T')[0]
+      : '';
+
+    return {
+      room_id: capsule.id,
+      capsule_name: capsule.title,
+      open_date: openDate,
+      max_participants: order.headcount,
+      max_images_per_person: maxImagesPerPerson,
+      has_music: order.addMusic,
+      has_video: order.addVideo,
     };
   }
 }
