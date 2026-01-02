@@ -285,8 +285,21 @@ export class CapsulesService {
   }
 
   private buildDistanceExpr(lat: number, lng: number) {
-    // Haversine formula in meters
-    return `6371000 * 2 * ASIN(SQRT(POWER(SIN(RADIANS((capsule.latitude - ${lat}) / 2)), 2) + COS(RADIANS(${lat})) * COS(RADIANS(capsule.latitude)) * POWER(SIN(RADIANS((capsule.longitude - ${lng}) / 2)), 2)))`;
+    // Haversine formula in meters (PostgreSQL compatible)
+    // RADIANS(x) = x * PI() / 180
+    const latRad = (lat * Math.PI) / 180;
+    const lngRad = (lng * Math.PI) / 180;
+
+    return `(
+      6371000 * 2 * ASIN(
+        SQRT(
+          POWER(SIN((capsule.latitude::float * PI() / 180 - ${latRad}) / 2), 2) +
+          COS(${latRad}) * 
+          COS(capsule.latitude::float * PI() / 180) * 
+          POWER(SIN((capsule.longitude::float * PI() / 180 - ${lngRad}) / 2), 2)
+        )
+      )
+    )`;
   }
 
   private computeOpenAtFromTimeOption(
@@ -519,12 +532,13 @@ export class CapsulesService {
 
     // 위치 검증
     const { lat, lng } = query;
-    const within = this.isWithinRadius(
-      capsule.latitude,
-      capsule.longitude,
-      lat,
-      lng,
-    );
+    // PostgreSQL decimal 타입을 number로 변환
+    const capsuleLat =
+      capsule.latitude !== null ? Number(capsule.latitude) : null;
+    const capsuleLng =
+      capsule.longitude !== null ? Number(capsule.longitude) : null;
+
+    const within = this.isWithinRadius(capsuleLat, capsuleLng, lat, lng);
     if (!within) {
       throw new ForbiddenException('FORBIDDEN_LOCATION');
     }
@@ -588,6 +602,11 @@ export class CapsulesService {
   }
 
   async findNearby(user: User, query: GetCapsulesListQueryDto) {
+    // user 검증
+    if (!user || !user.id) {
+      throw new BadRequestException('USER_REQUIRED');
+    }
+
     const {
       lat,
       lng,
@@ -596,6 +615,20 @@ export class CapsulesService {
       include_locationless = false,
       include_consumed = false,
     } = query;
+
+    // lat/lng 검증 추가
+    if (lat === undefined || lat === null || isNaN(lat)) {
+      throw new BadRequestException('INVALID_LATITUDE');
+    }
+    if (lng === undefined || lng === null || isNaN(lng)) {
+      throw new BadRequestException('INVALID_LONGITUDE');
+    }
+    if (lat < -90 || lat > 90) {
+      throw new BadRequestException('LATITUDE_OUT_OF_RANGE');
+    }
+    if (lng < -180 || lng > 180) {
+      throw new BadRequestException('LONGITUDE_OUT_OF_RANGE');
+    }
 
     if (radius_m < 10 || radius_m > 5000) {
       throw new BadRequestException('RADIUS_OUT_OF_RANGE');
@@ -641,12 +674,20 @@ export class CapsulesService {
     const entities = await qb.getMany();
     const sliceEntities = entities.slice(0, limit);
     const items = sliceEntities.map((capsule) => {
+      // PostgreSQL decimal 타입은 string으로 반환되므로 number로 변환
+      const capsuleLat =
+        capsule.latitude !== null ? Number(capsule.latitude) : null;
+      const capsuleLng =
+        capsule.longitude !== null ? Number(capsule.longitude) : null;
+
       const distance =
-        capsule.latitude !== null &&
-        capsule.longitude !== null &&
+        capsuleLat !== null &&
+        capsuleLng !== null &&
+        !isNaN(capsuleLat) &&
+        !isNaN(capsuleLng) &&
         this.isWithinRadius(
-          capsule.latitude,
-          capsule.longitude,
+          capsuleLat,
+          capsuleLng,
           lat,
           lng,
           Number.MAX_SAFE_INTEGER,
@@ -654,10 +695,10 @@ export class CapsulesService {
           ? (() => {
               const toRad = (deg: number) => (deg * Math.PI) / 180;
               const R = 6371e3;
-              const phi1 = toRad(capsule.latitude);
+              const phi1 = toRad(capsuleLat);
               const phi2 = toRad(lat);
-              const dPhi = toRad(lat - capsule.latitude);
-              const dLambda = toRad(lng - capsule.longitude);
+              const dPhi = toRad(lat - capsuleLat);
+              const dLambda = toRad(lng - capsuleLng);
               const a =
                 Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
                 Math.cos(phi1) *
@@ -689,8 +730,8 @@ export class CapsulesService {
         view_limit: capsule.viewLimit,
         view_count: capsule.viewCount,
         can_open: canOpen,
-        latitude: capsule.latitude,
-        longitude: capsule.longitude,
+        latitude: capsuleLat,
+        longitude: capsuleLng,
         distance_m:
           distance !== null && Number.isFinite(distance)
             ? Math.round(distance * 10) / 10
