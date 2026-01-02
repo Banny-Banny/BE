@@ -37,6 +37,7 @@ import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
 import { SubmitCapsuleDto } from './dto/submit-capsule.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
+import { GetViewersResponseDto } from './dto/get-viewers-response.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -375,6 +376,81 @@ export class CapsulesController {
       viewers: capsule.viewers,
       created_at: capsule.created_at,
     };
+  }
+
+  @Post(':id/viewers')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '이스터에그 발견 기록',
+    description:
+      '사용자가 이스터에그를 발견했을 때 조회 로그를 기록합니다. 중복 조회는 자동으로 처리되며, 첫 조회인 경우에만 view_count가 증가합니다.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '발견 기록 성공',
+    schema: {
+      example: {
+        success: true,
+        message: '이스터에그를 발견했습니다!',
+        is_first_view: true,
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 404, description: '캡슐 미존재/삭제' })
+  async recordViewer(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) capsuleId: string,
+  ) {
+    return this.capsulesService.recordCapsuleViewer(user, capsuleId);
+  }
+
+  @Get(':id/viewers')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '이스터에그 발견자 목록 조회',
+    description:
+      '특정 캡슐을 발견한 사용자 목록을 조회합니다. 조회 시각 오름차순으로 정렬되어 반환됩니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '발견자 목록 조회 성공',
+    type: GetViewersResponseDto,
+    schema: {
+      example: {
+        capsule_id: '550e8400-e29b-41d4-a716-446655440000',
+        total_viewers: 3,
+        view_limit: 10,
+        viewers: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440001',
+            nickname: '김철수',
+            profile_img: 'https://example.com/profile1.jpg',
+            viewed_at: '2025-01-02T10:30:00.000Z',
+          },
+          {
+            id: '550e8400-e29b-41d4-a716-446655440002',
+            nickname: '이영희',
+            profile_img: 'https://example.com/profile2.jpg',
+            viewed_at: '2025-01-02T11:15:00.000Z',
+          },
+          {
+            id: '550e8400-e29b-41d4-a716-446655440003',
+            nickname: '박민수',
+            profile_img: null,
+            viewed_at: '2025-01-02T12:00:00.000Z',
+          },
+        ],
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 404, description: '캡슐 미존재/삭제' })
+  async getViewers(
+    @CurrentUser() user: User,
+    @Param('id', ParseUUIDPipe) capsuleId: string,
+  ): Promise<GetViewersResponseDto> {
+    return this.capsulesService.getCapsuleViewers(user, capsuleId);
   }
 
   @Post('step-rooms/:capsuleId/my-content')

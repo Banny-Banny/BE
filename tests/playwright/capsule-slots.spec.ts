@@ -23,11 +23,10 @@ const DB_CONFIG = {
 
 const JWT_SECRET =
   process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
-
 let api: APIRequestContext;
 let client: Client;
 
-test.beforeAll(async ({ playwright }) => {
+test.beforeAll(async () => {
   client = new Client(DB_CONFIG);
   await client.connect();
   api = await request.newContext({
@@ -107,8 +106,10 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
       expect(body).toHaveProperty('usedSlots');
       expect(body).toHaveProperty('remainingSlots');
 
-      expect(body.totalSlots).toBe(10);
+      // totalSlots는 항상 3으로 고정
+      expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(0);
+      // remainingSlots는 user.eggSlots 값 (10)
       expect(body.remainingSlots).toBe(10);
 
       // 모든 값이 number 타입인지 확인
@@ -125,9 +126,14 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
     const { id: userId, token } = await createUser(10);
 
     try {
-      // 캡슐 5개 생성
+      // 캡슐 5개 생성 (eggSlots가 10 -> 5로 감소)
       for (let i = 0; i < 5; i++) {
         await createCapsule(userId);
+        // eggSlots 차감은 API에서 처리하므로 수동으로 차감
+        await client.query(
+          'UPDATE users SET egg_slots = egg_slots - 1 WHERE id = $1',
+          [userId],
+        );
       }
 
       // when: 슬롯 정보 조회
@@ -137,11 +143,11 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: usedSlots = 5, remainingSlots = 5
+      // then: totalSlots = 3 (고정), usedSlots = 5, remainingSlots = 5
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
-      expect(body.totalSlots).toBe(10);
+      expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(5);
       expect(body.remainingSlots).toBe(5);
     } finally {
@@ -157,6 +163,10 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
       // 캡슐 3개 생성 (모든 슬롯 소진)
       for (let i = 0; i < 3; i++) {
         await createCapsule(userId);
+        await client.query(
+          'UPDATE users SET egg_slots = egg_slots - 1 WHERE id = $1',
+          [userId],
+        );
       }
 
       // when: 슬롯 정보 조회
@@ -166,7 +176,7 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: remainingSlots = 0
+      // then: totalSlots = 3 (고정), usedSlots = 3, remainingSlots = 0
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
@@ -178,7 +188,7 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
     }
   });
 
-  test('슬롯을 전혀 사용하지 않은 경우 remainingSlots가 totalSlots와 같다', async () => {
+  test('슬롯을 전혀 사용하지 않은 경우 usedSlots가 0이다', async () => {
     // given: 슬롯 10개를 가진 사용자 생성 (캡슐 생성하지 않음)
     const { id: userId, token } = await createUser(10);
 
@@ -190,11 +200,11 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: remainingSlots = totalSlots
+      // then: totalSlots = 3 (고정), usedSlots = 0, remainingSlots = 10
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
-      expect(body.totalSlots).toBe(10);
+      expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(0);
       expect(body.remainingSlots).toBe(10);
     } finally {
@@ -210,6 +220,10 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
       // 캡슐 8개 생성
       for (let i = 0; i < 8; i++) {
         await createCapsule(userId);
+        await client.query(
+          'UPDATE users SET egg_slots = egg_slots - 1 WHERE id = $1',
+          [userId],
+        );
       }
 
       // when: 슬롯 정보 조회
@@ -219,11 +233,11 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: totalSlots = 15, usedSlots = 8, remainingSlots = 7
+      // then: totalSlots = 3 (고정), usedSlots = 8, remainingSlots = 7
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
-      expect(body.totalSlots).toBe(15);
+      expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(8);
       expect(body.remainingSlots).toBe(7);
     } finally {
@@ -239,12 +253,17 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
       const capsuleIds = [];
       for (let i = 0; i < 3; i++) {
         capsuleIds.push(await createCapsule(userId));
+        await client.query(
+          'UPDATE users SET egg_slots = egg_slots - 1 WHERE id = $1',
+          [userId],
+        );
       }
 
       // 캡슐 1개 soft delete
+      const deleteId = capsuleIds[0] as string;
       await client.query(
         'UPDATE capsules SET deleted_at = NOW() WHERE id = $1',
-        [capsuleIds[0]],
+        [deleteId],
       );
 
       // when: 슬롯 정보 조회
@@ -254,13 +273,13 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: usedSlots = 2 (삭제된 1개는 제외)
+      // then: totalSlots = 3 (고정), usedSlots = 2 (삭제된 1개 제외), remainingSlots = 7
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
-      expect(body.totalSlots).toBe(10);
+      expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(2); // 3개 생성했지만 1개 삭제됨
-      expect(body.remainingSlots).toBe(8);
+      expect(body.remainingSlots).toBe(7); // 10 - 3 = 7
     } finally {
       await cleanupUser(userId);
     }
@@ -358,6 +377,10 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
     try {
       for (let i = 0; i < 5; i++) {
         await createCapsule(userId);
+        await client.query(
+          'UPDATE users SET egg_slots = egg_slots - 1 WHERE id = $1',
+          [userId],
+        );
       }
 
       // when: 동시에 3번 요청
@@ -380,7 +403,7 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         expect(response.ok()).toBeTruthy();
         const body = await response.json();
 
-        expect(body.totalSlots).toBe(10);
+        expect(body.totalSlots).toBe(3);
         expect(body.usedSlots).toBe(5);
         expect(body.remainingSlots).toBe(5);
       }
@@ -389,4 +412,3 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
     }
   });
 });
-

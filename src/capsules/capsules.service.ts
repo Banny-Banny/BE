@@ -40,6 +40,7 @@ import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { MediaService } from '../media/media.service';
+import { GetViewersResponseDto } from './dto/get-viewers-response.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -1070,8 +1071,8 @@ export class CapsulesService {
       throw new NotFoundException('User not found');
     }
 
-    // 2. 전체 슬롯 수
-    const totalSlots = user.eggSlots;
+    // 2. 전체 슬롯 수는 항상 DEFAULT_EGG_SLOTS (3)으로 고정
+    const totalSlots = this.DEFAULT_EGG_SLOTS;
 
     // 3. 사용 중인 슬롯 수 (삭제되지 않은 캡슐 개수)
     const usedSlots = await this.capsuleRepository.count({
@@ -1081,8 +1082,8 @@ export class CapsulesService {
       },
     });
 
-    // 4. 남은 슬롯 수 계산 (음수 방지)
-    const remainingSlots = Math.max(0, totalSlots - usedSlots);
+    // 4. 남은 슬롯 수는 user.eggSlots (캡슐 생성 시 자동으로 차감됨)
+    const remainingSlots = user.eggSlots;
 
     return {
       totalSlots,
@@ -1855,5 +1856,92 @@ export class CapsulesService {
       headcount,
       false, // 수동 제출
     );
+  }
+
+  // ==========================================
+  // 이스터에그 발견 기록 관련 메서드
+  // ==========================================
+
+  /**
+   * 이스터에그 발견 기록
+   * 기존 logCapsuleAccess() 메서드를 재사용하여 구현
+   */
+  async recordCapsuleViewer(
+    user: User,
+    capsuleId: string,
+  ): Promise<{ success: boolean; message: string; is_first_view: boolean }> {
+    // 1. 캡슐 존재 확인
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id: capsuleId },
+    });
+
+    if (!capsule || capsule.deletedAt) {
+      throw new NotFoundException('CAPSULE_NOT_FOUND');
+    }
+
+    // 2. 이미 조회한 적이 있는지 확인
+    const existingLog = await this.accessLogRepository.findOne({
+      where: { capsuleId, viewerId: user.id },
+    });
+
+    const isFirstView = !existingLog;
+
+    // 3. 조회 기록 (기존 logCapsuleAccess 메서드 재사용)
+    await this.logCapsuleAccess(capsuleId, user.id);
+
+    // 4. view_count 업데이트 (첫 조회인 경우만)
+    if (isFirstView) {
+      await this.capsuleRepository.update(
+        { id: capsuleId },
+        { viewCount: () => 'view_count + 1' },
+      );
+    }
+
+    return {
+      success: true,
+      message: isFirstView
+        ? '이스터에그를 발견했습니다!'
+        : '이미 발견한 이스터에그입니다.',
+      is_first_view: isFirstView,
+    };
+  }
+
+  /**
+   * 이스터에그 발견자 목록 조회
+   * 기존 findOne() 메서드의 viewers 조회 로직을 재사용
+   */
+  async getCapsuleViewers(
+    user: User,
+    capsuleId: string,
+  ): Promise<GetViewersResponseDto> {
+    // 1. 캡슐 존재 확인
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id: capsuleId },
+    });
+
+    if (!capsule || capsule.deletedAt) {
+      throw new NotFoundException('CAPSULE_NOT_FOUND');
+    }
+
+    // 2. 조회자 목록 조회 (기존 로직 재사용)
+    const accessLogs = await this.accessLogRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: { viewer: true },
+      order: { viewedAt: 'ASC' },
+    });
+
+    const viewers = accessLogs.map((log) => ({
+      id: log.viewer.id,
+      nickname: log.viewer.nickname,
+      profile_img: log.viewer.profileImg,
+      viewed_at: log.viewedAt,
+    }));
+
+    return {
+      capsule_id: capsule.id,
+      total_viewers: viewers.length,
+      view_limit: capsule.viewLimit,
+      viewers,
+    };
   }
 }
