@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -7,6 +6,7 @@ import {
   OneToOne,
   JoinColumn,
   OneToMany,
+  DeleteDateColumn,
 } from 'typeorm';
 import { PaymentStatus } from '../common/enums';
 import { Order } from './order.entity';
@@ -14,7 +14,7 @@ import { PaymentCancel } from './payment-cancel.entity';
 
 /**
  * 재무적 가치가 있는 실제 결제 승인 데이터
- * 절대 삭제되거나 임의 수정되면 안 됨
+ * 절대 삭제되거나 임의 수정되면 안 됨 - soft delete 적용
  */
 @Entity('payments')
 export class Payment {
@@ -233,13 +233,20 @@ export class Payment {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
+  @DeleteDateColumn({
+    name: 'deleted_at',
+    nullable: true,
+    comment: 'Soft Delete (재무 데이터 보존)',
+  })
+  deletedAt: Date | null;
+
   @OneToMany(() => PaymentCancel, (cancel) => cancel.payment, {
     cascade: false,
   })
   cancels: PaymentCancel[];
 
   // Relations
-  @OneToOne(() => Order, (order) => order.payment, { onDelete: 'CASCADE' })
+  @OneToOne(() => Order, (order) => order.payment, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'order_id' })
   order: Order;
 }

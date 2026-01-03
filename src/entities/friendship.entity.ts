@@ -7,16 +7,18 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  Check,
 } from 'typeorm';
 import { FriendStatus } from '../common/enums';
 import { User } from './user.entity';
 
 /**
  * 유저 간의 친구 관계 관리
- * 양방향 친구일 경우 정책에 따라 데이터 2줄 생성 고려 가능
+ * 정책: user_id < friend_id 순서로만 저장 (양방향 중복 방지)
  */
 @Entity('friendships')
-@Unique(['userId', 'friendId']) // 동일한 두 사람 간의 중복 관계 데이터 방지
+@Unique(['userId', 'friendId'])
+@Check('user_id < friend_id')
 export class Friendship {
   @PrimaryGeneratedColumn('uuid')
   id: string;

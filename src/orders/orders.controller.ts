@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -85,7 +77,10 @@ export class OrdersController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: '유효하지 않은 상태 전환 또는 요청 본문 오류' })
+  @ApiResponse({
+    status: 400,
+    description: '유효하지 않은 상태 전환 또는 요청 본문 오류',
+  })
   @ApiResponse({ status: 401, description: '인증 실패' })
   @ApiResponse({ status: 403, description: '주문 소유권 불일치' })
   @ApiResponse({ status: 404, description: '주문 미존재' })

@@ -71,4 +71,3 @@ export class CapsuleEntry {
   @JoinColumn({ name: 'slot_id' })
   slot: CapsuleParticipantSlot;
 }
-

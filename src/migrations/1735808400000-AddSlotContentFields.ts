@@ -4,33 +4,60 @@ export class AddSlotContentFields1735808400000 implements MigrationInterface {
   name = 'AddSlotContentFields1735808400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // status enum 생성
+    // status enum 생성 (이미 있으면 생략)
     await queryRunner.query(`
-      CREATE TYPE "capsule_participant_slots_status_enum" AS ENUM('PENDING', 'COMPLETED')
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_type t
+          JOIN pg_namespace n ON n.oid = t.typnamespace
+          WHERE t.typname = 'capsule_participant_slots_status_enum'
+            AND n.nspname = 'public'
+        ) THEN
+          CREATE TYPE "capsule_participant_slots_status_enum" AS ENUM('PENDING', 'COMPLETED');
+        END IF;
+      END
+      $$;
     `);
 
     // 컬럼 추가
     await queryRunner.query(`
       ALTER TABLE "capsule_participant_slots"
-      ADD COLUMN "nickname" VARCHAR(50),
-      ADD COLUMN "text_message" TEXT,
-      ADD COLUMN "status" "capsule_participant_slots_status_enum" DEFAULT 'PENDING',
-      ADD COLUMN "image_ids" uuid[],
-      ADD COLUMN "music_id" uuid,
-      ADD COLUMN "video_id" uuid
+      ADD COLUMN IF NOT EXISTS "nickname" VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS "text_message" TEXT,
+      ADD COLUMN IF NOT EXISTS "status" "capsule_participant_slots_status_enum" DEFAULT 'PENDING',
+      ADD COLUMN IF NOT EXISTS "image_ids" uuid[],
+      ADD COLUMN IF NOT EXISTS "music_id" uuid,
+      ADD COLUMN IF NOT EXISTS "video_id" uuid
     `);
 
     // 외래 키 추가
     await queryRunner.query(`
-      ALTER TABLE "capsule_participant_slots"
-      ADD CONSTRAINT "FK_capsule_slots_music" 
-      FOREIGN KEY ("music_id") REFERENCES "media"("id") ON DELETE SET NULL
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsule_slots_music'
+        ) THEN
+          ALTER TABLE "capsule_participant_slots"
+          ADD CONSTRAINT "FK_capsule_slots_music" 
+          FOREIGN KEY ("music_id") REFERENCES "media"("id") ON DELETE SET NULL;
+        END IF;
+      END
+      $$;
     `);
 
     await queryRunner.query(`
-      ALTER TABLE "capsule_participant_slots"
-      ADD CONSTRAINT "FK_capsule_slots_video" 
-      FOREIGN KEY ("video_id") REFERENCES "media"("id") ON DELETE SET NULL
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsule_slots_video'
+        ) THEN
+          ALTER TABLE "capsule_participant_slots"
+          ADD CONSTRAINT "FK_capsule_slots_video" 
+          FOREIGN KEY ("video_id") REFERENCES "media"("id") ON DELETE SET NULL;
+        END IF;
+      END
+      $$;
     `);
 
     // 컬럼 코멘트 추가
@@ -88,4 +115,3 @@ export class AddSlotContentFields1735808400000 implements MigrationInterface {
     `);
   }
 }
-

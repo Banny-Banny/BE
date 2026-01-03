@@ -4,4 +4,3 @@ export class KakaoReadyDto {
   @IsUUID()
   order_id: string;
 }
-

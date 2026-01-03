@@ -28,4 +28,3 @@ export class RecordViewerDto {
   @Max(180)
   lng?: number;
 }
-

@@ -40,4 +40,3 @@ export class CreateOrderDto {
   @IsBoolean()
   add_video?: boolean;
 }
-

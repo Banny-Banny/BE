@@ -39,4 +39,3 @@ export class AddCapsuleBuriedFields1735808401000 implements MigrationInterface {
     // 필요 시 enum 재생성 또는 수동 처리 필요
   }
 }
-

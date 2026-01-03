@@ -34,6 +34,12 @@ if (usePgEnv) {
   }
 }
 
+// ts-node로 실행할 때와 빌드 후 dist로 실행할 때 다른 경로를 바라보게 한다.
+const isTsEnv = __filename.endsWith('.ts');
+const migrationsGlob = isTsEnv
+  ? 'src/migrations/*.ts'
+  : 'dist/src/migrations/*.js';
+
 const dataSource = new DataSource({
   type: 'postgres',
   ...(databaseUrl
@@ -68,8 +74,8 @@ const dataSource = new DataSource({
     CustomerService,
     Media,
   ],
-  // ts-node로 CLI 실행 시 TypeScript 마이그레이션을 직접 로드한다.
-  migrations: ['src/migrations/*.ts'],
+  // ts-node 실행 시 TS, 빌드 산출물 실행 시 JS 마이그레이션을 로드
+  migrations: [migrationsGlob],
   synchronize: false,
   logging: true,
 });

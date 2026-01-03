@@ -73,14 +73,16 @@ export class CapsulesCronService {
     await this.dataSource.transaction(async (manager) => {
       const capsuleRepo = manager.getRepository(Capsule);
 
-      // 1. 방장 슬롯 조회
-      const ownerSlot = await manager.getRepository(CapsuleParticipantSlot).findOne({
-        where: { capsuleId: capsule.id, slotIndex: 0 },
-      });
+      // 1. 방장 슬롯 조회 (향후 구현: 방장이 저장한 위치 사용)
+      // const ownerSlot = await manager
+      //   .getRepository(CapsuleParticipantSlot)
+      //   .findOne({
+      //     where: { capsuleId: capsule.id, slotIndex: 0 },
+      //   });
 
       // 2. 기본 위치 설정
-      let latitude = 37.5665; // 서울시청 (기본값)
-      let longitude = 126.978;
+      const latitude = 37.5665; // 서울시청 (기본값)
+      const longitude = 126.978;
 
       // 방장이 위치를 저장한 경우 (향후 구현)
       // if (ownerSlot?.savedLatitude) {
@@ -114,4 +116,3 @@ export class CapsulesCronService {
   //   // });
   // }
 }
-

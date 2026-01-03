@@ -30,4 +30,3 @@ export class ContentResponseDto {
   @ApiProperty({ description: '응답 데이터', type: ContentDataDto })
   data: ContentDataDto;
 }
-

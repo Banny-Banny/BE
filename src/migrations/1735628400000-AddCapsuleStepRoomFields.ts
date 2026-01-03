@@ -1,31 +1,40 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddCapsuleStepRoomFields1735628400000
-  implements MigrationInterface
-{
+export class AddCapsuleStepRoomFields1735628400000 implements MigrationInterface {
   name = 'AddCapsuleStepRoomFields1735628400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // RoomStatus enum 생성
+    // RoomStatus enum 생성 (이미 있으면 생략)
     await queryRunner.query(`
-      CREATE TYPE "capsules_room_status_enum" AS ENUM('WAITING', 'COMPLETED', 'EXPIRED')
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_type t
+          JOIN pg_namespace n ON n.oid = t.typnamespace
+          WHERE t.typname = 'capsules_room_status_enum'
+            AND n.nspname = 'public'
+        ) THEN
+          CREATE TYPE "capsules_room_status_enum" AS ENUM('WAITING', 'COMPLETED', 'EXPIRED');
+        END IF;
+      END
+      $$;
     `);
 
     // Capsule 테이블에 대기실 필드 추가
     await queryRunner.query(`
-      ALTER TABLE "capsules" 
-      ADD COLUMN "invite_code" VARCHAR(6) UNIQUE,
-      ADD COLUMN "deadline" TIMESTAMP,
-      ADD COLUMN "room_status" "capsules_room_status_enum"
+      ALTER TABLE "capsules"
+      ADD COLUMN IF NOT EXISTS "invite_code" VARCHAR(6) UNIQUE,
+      ADD COLUMN IF NOT EXISTS "deadline" TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS "room_status" "capsules_room_status_enum"
     `);
 
     // 인덱스 생성
     await queryRunner.query(`
-      CREATE UNIQUE INDEX "IDX_capsules_invite_code" ON "capsules" ("invite_code") WHERE "invite_code" IS NOT NULL
+      CREATE UNIQUE INDEX IF NOT EXISTS "IDX_capsules_invite_code" ON "capsules" ("invite_code") WHERE "invite_code" IS NOT NULL
     `);
 
     await queryRunner.query(`
-      CREATE INDEX "IDX_capsules_deadline" ON "capsules" ("deadline") WHERE "deadline" IS NOT NULL
+      CREATE INDEX IF NOT EXISTS "IDX_capsules_deadline" ON "capsules" ("deadline") WHERE "deadline" IS NOT NULL
     `);
 
     // 컬럼 코멘트 추가
@@ -59,4 +68,3 @@ export class AddCapsuleStepRoomFields1735628400000
     await queryRunner.query(`DROP TYPE IF EXISTS "capsules_room_status_enum"`);
   }
 }
-

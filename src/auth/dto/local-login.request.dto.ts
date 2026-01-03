@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, Length, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class LocalLoginRequestDto {
   @ApiProperty({
@@ -30,4 +36,3 @@ export class LocalLoginRequestDto {
   @MaxLength(128)
   password: string;
 }
-

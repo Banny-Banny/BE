@@ -20,4 +20,3 @@ export class TossCancelDto {
     holderName: string;
   };
 }
-

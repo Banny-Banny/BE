@@ -41,4 +41,3 @@ export class SubmitCapsuleResponseDto {
   @ApiProperty({ description: '응답 데이터', type: SubmitCapsuleDataDto })
   data: SubmitCapsuleDataDto;
 }
-

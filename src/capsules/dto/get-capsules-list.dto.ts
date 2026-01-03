@@ -54,4 +54,3 @@ export class GetCapsulesListQueryDto {
   @IsBoolean()
   include_consumed?: boolean;
 }
-

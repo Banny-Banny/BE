@@ -7,6 +7,7 @@ import {
   JoinColumn,
   OneToOne,
   UpdateDateColumn,
+  DeleteDateColumn,
 } from 'typeorm';
 import { OrderStatus, TimeOption } from '../common/enums';
 import { User } from './user.entity';
@@ -17,6 +18,7 @@ import { Capsule } from './capsule.entity';
 /**
  * 사용자의 주문 시도 내역
  * 실제 결제 성공 여부는 Payments 테이블에서 확인
+ * 재무 데이터 보존을 위해 soft delete 사용
  */
 @Entity('orders')
 export class Order {
@@ -86,6 +88,13 @@ export class Order {
 
   @UpdateDateColumn({ name: 'updated_at', nullable: true })
   updatedAt: Date | null;
+
+  @DeleteDateColumn({
+    name: 'deleted_at',
+    nullable: true,
+    comment: 'Soft Delete (재무 데이터 보존)',
+  })
+  deletedAt: Date | null;
 
   // Relations
   @ManyToOne(() => User, (user) => user.orders, { onDelete: 'CASCADE' })

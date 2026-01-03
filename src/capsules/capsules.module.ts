@@ -3,7 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CapsulesController } from './capsules.controller';
 import { CapsuleEntriesController } from './capsule-entries.controller';
+import { CapsulesStepRoomController } from './capsules-step-room.controller';
 import { CapsulesService } from './capsules.service';
+import { CapsulesStepRoomService } from './capsules-step-room.service';
 import { CapsulesCronService } from './capsules-cron.service';
 import {
   Capsule,
@@ -34,8 +36,12 @@ import { MediaModule } from '../media/media.module';
     ScheduleModule.forRoot(),
     MediaModule,
   ],
-  controllers: [CapsulesController, CapsuleEntriesController],
-  providers: [CapsulesService, CapsulesCronService],
-  exports: [CapsulesService],
+  controllers: [
+    CapsulesController,
+    CapsuleEntriesController,
+    CapsulesStepRoomController,
+  ],
+  providers: [CapsulesService, CapsulesStepRoomService, CapsulesCronService],
+  exports: [CapsulesService, CapsulesStepRoomService],
 })
 export class CapsulesModule {}

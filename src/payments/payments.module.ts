@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { PaymentsController, TossPaymentsController } from './payments.controller';
+import {
+  PaymentsController,
+  TossPaymentsController,
+} from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { Order } from '../entities/order.entity';
 import { Payment } from '../entities/payment.entity';
@@ -16,4 +19,3 @@ import { CapsulesModule } from '../capsules/capsules.module';
   providers: [PaymentsService],
 })
 export class PaymentsModule {}
-

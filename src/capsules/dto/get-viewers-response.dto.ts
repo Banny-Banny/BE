@@ -58,4 +58,3 @@ export class GetViewersResponseDto {
   })
   viewers: ViewerDto[];
 }
-

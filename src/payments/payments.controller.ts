@@ -33,7 +33,8 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: '카카오페이 결제 준비',
-    description: '주문(PENDING_PAYMENT)을 검증 후 카카오페이 결제 URL과 tid를 반환합니다.',
+    description:
+      '주문(PENDING_PAYMENT)을 검증 후 카카오페이 결제 URL과 tid를 반환합니다.',
   })
   @ApiResponse({ status: 201, description: '준비 성공' })
   @ApiResponse({ status: 400, description: '검증 실패/상태 불일치' })
@@ -48,7 +49,8 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: '카카오페이 결제 승인',
-    description: 'tid/pg_token을 확인하여 결제 승인을 완료하고 주문 상태를 갱신합니다.',
+    description:
+      'tid/pg_token을 확인하여 결제 승인을 완료하고 주문 상태를 갱신합니다.',
   })
   @ApiResponse({ status: 201, description: '승인 성공' })
   @ApiResponse({ status: 400, description: '검증 실패/상태 불일치' })
@@ -70,7 +72,8 @@ export class TossPaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: '토스페이먼츠 결제 승인',
-    description: 'paymentKey/orderId/amount으로 토스 결제를 승인하고 저장합니다.',
+    description:
+      'paymentKey/orderId/amount으로 토스 결제를 승인하고 저장합니다.',
   })
   @ApiResponse({ status: 201, description: '승인 성공' })
   @ApiResponse({ status: 400, description: '검증 실패/상태 불일치' })
@@ -113,4 +116,3 @@ export class TossPaymentsController {
     return this.paymentsService.tossCancel(user, { ...dto, paymentKey });
   }
 }
-

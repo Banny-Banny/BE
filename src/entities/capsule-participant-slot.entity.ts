@@ -98,7 +98,7 @@ export class CapsuleParticipantSlot {
   capsule: Capsule;
 
   @ManyToOne(() => User, (user) => user.participantSlots, {
-    onDelete: 'SET NULL',
+    onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
   user: User | null;
@@ -111,4 +111,3 @@ export class CapsuleParticipantSlot {
   @JoinColumn({ name: 'video_id' })
   video: Media | null;
 }
-

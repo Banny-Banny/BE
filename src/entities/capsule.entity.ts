@@ -81,13 +81,16 @@ export class Capsule {
   })
   content: string | null;
 
+  /**
+   * @deprecated media_urls는 향후 제거 예정. media_item_ids 사용 권장.
+   */
   @Column({
     type: 'text',
     array: true,
     nullable: true,
     name: 'media_urls',
     comment:
-      '업로드된 파일의 CDN/S3 경로 목록 (최대 3개, nullable entries 허용)',
+      '[DEPRECATED] 업로드된 파일의 CDN/S3 경로. media_item_ids 사용 권장',
   })
   mediaUrls: (string | null)[] | null;
 
@@ -96,7 +99,8 @@ export class Capsule {
     array: true,
     nullable: true,
     name: 'media_item_ids',
-    comment: 'Media 엔티티 id 목록 (presign/complete 이후 캡슐에 연결)',
+    comment:
+      'Media 엔티티 id 목록 (presign/complete 이후 캡슐에 연결). URL은 Media 조인으로 획득',
   })
   mediaItemIds: string[] | null;
 

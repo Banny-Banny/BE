@@ -11,4 +11,3 @@ export class OrderStatusResponseDto {
   created_at: Date;
   updated_at: Date | null;
 }
-

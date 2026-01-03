@@ -20,4 +20,3 @@ export class CreateCapsuleEntryDto {
   @IsUUID('all', { each: true })
   media_item_ids?: string[];
 }
-

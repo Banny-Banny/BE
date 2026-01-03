@@ -47,4 +47,3 @@ export class StepRoomSettingsResponseDto {
   })
   has_video: boolean;
 }
-

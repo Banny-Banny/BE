@@ -22,4 +22,3 @@ export class SubmitCapsuleDto {
   @Max(180)
   longitude: number;
 }
-

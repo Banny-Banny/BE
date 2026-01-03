@@ -4,4 +4,3 @@ export class GetOrderStatusParamDto {
   @IsUUID()
   orderId: string;
 }
-

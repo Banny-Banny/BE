@@ -1,4 +1,11 @@
-import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CompleteMediaDto {
   @IsString()
@@ -28,4 +35,3 @@ export class CompleteMediaDto {
   @Min(1)
   height?: number;
 }
-

@@ -90,9 +90,8 @@ export class PaymentCancel {
   receiptKey: string | null;
 
   @Column({ type: 'jsonb', name: 'raw_response', nullable: true })
-  rawResponse: any | null;
+  rawResponse: Record<string, unknown> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
-

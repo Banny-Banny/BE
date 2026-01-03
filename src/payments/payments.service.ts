@@ -18,7 +18,7 @@ import { OrderStatus, PaymentStatus } from '../common/enums';
 import { KakaoReadyDto } from './dto/kakao-ready.dto';
 import { KakaoApproveDto } from './dto/kakao-approve.dto';
 import { User } from '../entities/user.entity';
-import { CapsulesService } from '../capsules/capsules.service';
+import { CapsulesStepRoomService } from '../capsules/capsules-step-room.service';
 import { PaymentCancel } from '../entities/payment-cancel.entity';
 import { TossConfirmDto } from './dto/toss-confirm.dto';
 import { TossCancelDto } from './dto/toss-cancel.dto';
@@ -59,7 +59,7 @@ export class PaymentsService {
     private readonly paymentRepository: Repository<Payment>,
     @InjectRepository(PaymentCancel)
     private readonly paymentCancelRepository: Repository<PaymentCancel>,
-    private readonly capsulesService: CapsulesService,
+    private readonly stepRoomService: CapsulesStepRoomService,
     private readonly dataSource: DataSource,
   ) {
     this.useMock = process.env.KAKAO_PAY_ENABLE !== 'true';
@@ -277,7 +277,7 @@ export class PaymentsService {
       });
     });
 
-    const capsule = await this.capsulesService.createCapsuleWithStepRoom(
+    const capsule = await this.stepRoomService.createCapsuleWithStepRoom(
       order.id,
     );
 
@@ -541,36 +541,57 @@ export class PaymentsService {
       throw new BadRequestException('AMOUNT_MISMATCH');
     }
 
+    // PG 호출
     const tossRes = await this.callTossConfirm(dto);
 
-    const payment = await this.dataSource.transaction(async (manager) => {
-      let pay = await manager.getRepository(Payment).findOne({
-        where: { orderId: order.id },
-      });
-      if (!pay) {
-        pay = manager.getRepository(Payment).create({
-          orderId: order.id,
-          pgTid: tossRes.paymentKey ?? crypto.randomUUID(),
-          amount: order.totalAmount,
-          status: PaymentStatus.READY,
+    let payment: Payment;
+    let capsule: any;
+
+    try {
+      // DB 트랜잭션
+      payment = await this.dataSource.transaction(async (manager) => {
+        let pay = await manager.getRepository(Payment).findOne({
+          where: { orderId: order.id },
         });
-      }
+        if (!pay) {
+          pay = manager.getRepository(Payment).create({
+            orderId: order.id,
+            pgTid: tossRes.paymentKey ?? crypto.randomUUID(),
+            amount: order.totalAmount,
+            status: PaymentStatus.READY,
+          });
+        }
 
-      pay = this.mapTossPaymentToEntity(pay, tossRes, dto.orderId);
-      pay.status = PaymentStatus.PAID;
+        pay = this.mapTossPaymentToEntity(pay, tossRes, dto.orderId);
+        pay.status = PaymentStatus.PAID;
 
-      await manager.getRepository(Payment).save(pay);
-      await manager.getRepository(Order).save({
-        ...order,
-        status: OrderStatus.PAID,
+        await manager.getRepository(Payment).save(pay);
+        await manager.getRepository(Order).save({
+          ...order,
+          status: OrderStatus.PAID,
+        });
+
+        return pay;
       });
 
-      return pay;
-    });
-
-    const capsule = await this.capsulesService.createCapsuleWithStepRoom(
-      order.id,
-    );
+      // 캡슐 생성
+      capsule = await this.stepRoomService.createCapsuleWithStepRoom(order.id);
+    } catch (error) {
+      // DB 트랜잭션 또는 캡슐 생성 실패 시 보상 트랜잭션 (PG 환불)
+      if (tossRes?.paymentKey) {
+        try {
+          await this.callTossCancel({
+            paymentKey: tossRes.paymentKey,
+            cancelReason: '결제 처리 실패 (서버 오류)',
+            cancelAmount: order.totalAmount,
+          });
+        } catch (cancelError) {
+          // 환불 실패 시 로그 기록 (실제로는 알림/모니터링 필요)
+          console.error('보상 트랜잭션(환불) 실패:', cancelError);
+        }
+      }
+      throw error;
+    }
 
     // 참여 슬롯 조회 (current_participants 계산용)
     const currentParticipants = await this.dataSource
