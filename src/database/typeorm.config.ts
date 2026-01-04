@@ -34,11 +34,11 @@ if (usePgEnv) {
   }
 }
 
-// ts-node로 실행할 때와 빌드 후 dist로 실행할 때 다른 경로를 바라보게 한다.
-const isTsEnv = __filename.endsWith('.ts');
-const migrationsGlob = isTsEnv
-  ? 'src/migrations/*.ts'
-  : 'dist/src/migrations/*.js';
+// 프로덕션에서는 빌드된 JS를 사용, 개발에서는 TS를 사용
+const isProduction = process.env.NODE_ENV === 'production' || !__filename.endsWith('.ts');
+const migrationsGlob = isProduction
+  ? 'dist/src/migrations/*.js'
+  : 'src/migrations/*.ts';
 
 const dataSource = new DataSource({
   type: 'postgres',
