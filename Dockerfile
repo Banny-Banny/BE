@@ -1,5 +1,5 @@
 # Build stage
-FROM node:22-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 ENV NODE_ENV=development
@@ -13,18 +13,19 @@ COPY . .
 RUN npm run build
 
 # Runtime stage
-FROM node:22-alpine AS runner
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Install prod deps
+# Install ALL deps (needed for migrations with ts-node)
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-# Copy built output
+# Copy built output and source files needed for migrations
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src ./src
 
 EXPOSE 3000
-CMD ["node", "dist/src/main"]
+CMD ["sh", "-c", "npm run migration:run && node dist/src/main"]
 
