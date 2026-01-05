@@ -537,22 +537,26 @@ export class CapsulesService {
         : [];
     const mediaItems = this.buildMediaItems(capsule, mediaEntities);
 
-    // 조회 로그 기록
-    await this.logCapsuleAccess(capsule.id, user.id);
+    // 조회 로그 기록 (본인 캡슐이 아닌 경우만)
+    if (capsule.userId !== user.id) {
+      await this.logCapsuleAccess(capsule.id, user.id);
+    }
 
-    // 조회자 목록 조회
+    // 조회자 목록 조회 (작성자 본인 제외)
     const accessLogs = await this.accessLogRepository.find({
       where: { capsuleId: capsule.id },
       relations: { viewer: true },
       order: { viewedAt: 'ASC' },
     });
 
-    const viewers = accessLogs.map((log) => ({
-      id: log.viewer.id,
-      nickname: log.viewer.nickname,
-      profile_img: log.viewer.profileImg,
-      viewed_at: log.viewedAt,
-    }));
+    const viewers = accessLogs
+      .filter((log) => log.viewerId !== capsule.userId)
+      .map((log) => ({
+        id: log.viewer.id,
+        nickname: log.viewer.nickname,
+        profile_img: log.viewer.profileImg,
+        viewed_at: log.viewedAt,
+      }));
 
     // 작성자 정보
     const author = capsule.user
@@ -1139,6 +1143,15 @@ export class CapsulesService {
         throw new NotFoundException('CAPSULE_NOT_FOUND');
       }
 
+      // 본인 캡슐인 경우 로그 기록하지 않음
+      if (capsule.userId === user.id) {
+        return {
+          success: true,
+          message: '본인이 작성한 이스터에그입니다.',
+          is_first_view: false,
+        };
+      }
+
       // 2. access_log에 삽입 시도 (UNIQUE 제약으로 중복 방지)
       let isFirstView = false;
       try {
@@ -1187,19 +1200,22 @@ export class CapsulesService {
       throw new NotFoundException('CAPSULE_NOT_FOUND');
     }
 
-    // 2. 조회자 목록 조회 (기존 로직 재사용)
+    // 2. 조회자 목록 조회 (작성자 본인 제외)
     const accessLogs = await this.accessLogRepository.find({
       where: { capsuleId: capsule.id },
       relations: { viewer: true },
       order: { viewedAt: 'ASC' },
     });
 
-    const viewers = accessLogs.map((log) => ({
-      id: log.viewer.id,
-      nickname: log.viewer.nickname,
-      profile_img: log.viewer.profileImg,
-      viewed_at: log.viewedAt,
-    }));
+    // 작성자 본인은 제외
+    const viewers = accessLogs
+      .filter((log) => log.viewerId !== capsule.userId)
+      .map((log) => ({
+        id: log.viewer.id,
+        nickname: log.viewer.nickname,
+        profile_img: log.viewer.profileImg,
+        viewed_at: log.viewedAt,
+      }));
 
     return {
       capsule_id: capsule.id,
