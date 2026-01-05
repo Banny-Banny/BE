@@ -215,7 +215,7 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그(캡슐) 조회',
     description:
-      '위치 도달 + 친구(connected)일 때만 열람 가능. lat/lng 쿼리로 위치 검증. 작성자 정보, 조회자 목록, 생성일시를 포함하여 반환합니다.',
+      '본인 캡슐은 언제든지 조회 가능. 타인 캡슐은 300m 반경 도달 + 친구(connected)일 때만 열람 가능. lat/lng 쿼리로 위치 검증. 작성자 정보, 조회자 목록, 생성일시를 포함하여 반환합니다.',
   })
   @ApiResponse({
     status: 200,

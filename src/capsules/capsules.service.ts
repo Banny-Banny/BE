@@ -194,7 +194,7 @@ export class CapsulesService {
     capsuleLng: number | null,
     userLat?: number,
     userLng?: number,
-    radiusMeters = 50,
+    radiusMeters = 300,
   ): boolean {
     if (!capsuleLat || !capsuleLng) return true; // 위치 없는 캡슐은 위치 제약 없음
     if (userLat === undefined || userLng === undefined) return false;
@@ -486,37 +486,44 @@ export class CapsulesService {
       throw new NotFoundException('CAPSULE_NOT_FOUND');
     }
 
-    // 친구 여부 확인
-    const friend = await this.friendshipRepository.findOne({
-      where: [
-        {
-          userId: user.id,
-          friendId: capsule.userId,
-          status: FriendStatus.CONNECTED,
-        },
-        {
-          userId: capsule.userId,
-          friendId: user.id,
-          status: FriendStatus.CONNECTED,
-        },
-      ],
-    });
+    // 본인 캡슐 여부 확인
+    const isMine = capsule.userId === user.id;
 
-    if (!friend) {
-      throw new ForbiddenException('FORBIDDEN_FRIENDSHIP');
+    // 본인 캡슐이 아닌 경우에만 친구 여부 확인
+    if (!isMine) {
+      const friend = await this.friendshipRepository.findOne({
+        where: [
+          {
+            userId: user.id,
+            friendId: capsule.userId,
+            status: FriendStatus.CONNECTED,
+          },
+          {
+            userId: capsule.userId,
+            friendId: user.id,
+            status: FriendStatus.CONNECTED,
+          },
+        ],
+      });
+
+      if (!friend) {
+        throw new ForbiddenException('FORBIDDEN_FRIENDSHIP');
+      }
     }
 
-    // 위치 검증
-    const { lat, lng } = query;
-    // PostgreSQL decimal 타입을 number로 변환
-    const capsuleLat =
-      capsule.latitude !== null ? Number(capsule.latitude) : null;
-    const capsuleLng =
-      capsule.longitude !== null ? Number(capsule.longitude) : null;
+    // 본인 캡슐이 아닌 경우에만 위치 검증
+    if (!isMine) {
+      const { lat, lng } = query;
+      // PostgreSQL decimal 타입을 number로 변환
+      const capsuleLat =
+        capsule.latitude !== null ? Number(capsule.latitude) : null;
+      const capsuleLng =
+        capsule.longitude !== null ? Number(capsule.longitude) : null;
 
-    const within = this.isWithinRadius(capsuleLat, capsuleLng, lat, lng);
-    if (!within) {
-      throw new ForbiddenException('FORBIDDEN_LOCATION');
+      const within = this.isWithinRadius(capsuleLat, capsuleLng, lat, lng);
+      if (!within) {
+        throw new ForbiddenException('FORBIDDEN_LOCATION');
+      }
     }
 
     const isLocked =
