@@ -3,6 +3,8 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -12,6 +14,7 @@ import { User } from '../entities/user.entity';
 import { Payment } from '../entities/payment.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderStatus, TimeOption, PaymentStatus } from '../common/enums';
+import { CapsulesStepRoomService } from '../capsules/capsules-step-room.service';
 
 @Injectable()
 export class OrdersService {
@@ -23,6 +26,8 @@ export class OrdersService {
     @InjectRepository(Payment)
     private readonly paymentRepository: Repository<Payment>,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => CapsulesStepRoomService))
+    private readonly stepRoomService: CapsulesStepRoomService,
   ) {}
 
   private validateDto(dto: CreateOrderDto) {
@@ -162,6 +167,12 @@ export class OrdersService {
     const totalAmount =
       timeOptionAmount + imageAmount + audioAmount + videoAmount;
 
+    // 테스트 환경에서는 바로 PAID 상태로 생성
+    const skipPayment = process.env.SKIP_PAYMENT === 'true';
+    const orderStatus = skipPayment
+      ? OrderStatus.PAID
+      : OrderStatus.PENDING_PAYMENT;
+
     const order = this.orderRepository.create({
       userId: user.id,
       productId: product.id,
@@ -175,10 +186,56 @@ export class OrdersService {
       photoCount: dto.photo_count ?? 0,
       addMusic: dto.add_music ?? false,
       addVideo: dto.add_video ?? false,
-      status: OrderStatus.PENDING_PAYMENT,
+      status: orderStatus,
     });
 
     const saved = await this.orderRepository.save(order);
+
+    // 테스트 환경에서는 바로 캡슐 생성
+    if (skipPayment) {
+      const capsule = await this.stepRoomService.createCapsuleWithStepRoom(
+        saved.id,
+      );
+
+      // 참여 슬롯 조회 (current_participants 계산용)
+      const currentParticipants = await this.dataSource
+        .getRepository('capsule_participant_slots')
+        .createQueryBuilder('slot')
+        .where('slot.capsule_id = :capsuleId', { capsuleId: capsule.id })
+        .andWhere('slot.user_id IS NOT NULL')
+        .getCount();
+
+      return {
+        order_id: saved.id,
+        total_amount: saved.totalAmount,
+        time_option_amount: timeOptionAmount,
+        image_amount: imageAmount,
+        audio_amount: audioAmount,
+        video_amount: videoAmount,
+        time_option: saved.timeOption,
+        custom_open_at: saved.customOpenAt,
+        headcount: saved.headcount,
+        photo_count: saved.photoCount,
+        add_music: saved.addMusic,
+        add_video: saved.addVideo,
+        status: saved.status,
+        // 테스트 모드에서는 캡슐 정보도 함께 반환
+        capsule_id: capsule.id,
+        invite_code: capsule.inviteCode,
+        step_room: {
+          room_id: capsule.id,
+          invite_code: capsule.inviteCode,
+          capsule_name: capsule.title,
+          open_date: capsule.openAt,
+          deadline: capsule.deadline,
+          participant_count: capsule.viewLimit,
+          current_participants: currentParticipants,
+          created_at: capsule.createdAt,
+        },
+      };
+    }
+
+    // 일반 모드에서는 기존대로 주문 정보만 반환
     return {
       order_id: saved.id,
       total_amount: saved.totalAmount,
@@ -223,6 +280,7 @@ export class OrdersService {
       order: {
         order_id: order.id,
         capsule_id: order.capsule ? order.capsule.id : null,
+        invite_code: order.capsule ? order.capsule.inviteCode : null,
         status: order.status,
         total_amount: order.totalAmount,
         time_option: order.timeOption,
