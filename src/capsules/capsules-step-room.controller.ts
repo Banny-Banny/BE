@@ -32,6 +32,8 @@ import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
 import { SubmitCapsuleDto } from './dto/submit-capsule.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
+import { CreateStepRoomDto } from './dto/create-step-room.dto';
+import { CreateStepRoomResponseDto } from './dto/create-step-room-response.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -61,6 +63,72 @@ interface MulterFile {
 @Controller('capsules')
 export class CapsulesStepRoomController {
   constructor(private readonly stepRoomService: CapsulesStepRoomService) {}
+
+  @Post('step-rooms/create')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '타임캡슐(대기실) 생성',
+    description:
+      '결제 완료(PAID)된 주문으로 타임캡슐을 생성합니다. 생성 시 대기실 초대 코드가 발급되며, 24시간 내에 참여자들이 콘텐츠를 작성해야 합니다.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '타임캡슐 생성 성공',
+    type: CreateStepRoomResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청 (결제 미완료, 인원수 오류 등)',
+    schema: {
+      example: {
+        success: false,
+        error: 'BAD_REQUEST',
+        message: '결제 완료된 주문만 대기실을 생성할 수 있습니다',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '주문을 찾을 수 없음',
+    schema: {
+      example: {
+        success: false,
+        error: 'NOT_FOUND',
+        message: '주문을 찾을 수 없습니다',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 409,
+    description: '이미 생성된 캡슐이 존재함',
+    schema: {
+      example: {
+        success: false,
+        error: 'ALREADY_EXISTS',
+        message: '이 주문으로 이미 캡슐이 생성되었습니다',
+      },
+    },
+  })
+  async createStepRoom(
+    @CurrentUser() user: User,
+    @Body() createStepRoomDto: CreateStepRoomDto,
+  ): Promise<CreateStepRoomResponseDto> {
+    const capsule = await this.stepRoomService.createCapsuleWithStepRoom(
+      createStepRoomDto.order_id,
+    );
+
+    return {
+      capsule_id: capsule.id,
+      invite_code: capsule.inviteCode!,
+      title: capsule.title,
+      open_date: capsule.openAt!,
+      deadline: capsule.deadline!,
+      max_participants: capsule.viewLimit,
+      current_participants: 1, // 생성 시점에는 방장만 참여
+      status: capsule.roomStatus!,
+      created_at: capsule.createdAt,
+    };
+  }
 
   @Get('step-rooms')
   @ApiOperation({ summary: '초대 코드로 대기실 조회' })
