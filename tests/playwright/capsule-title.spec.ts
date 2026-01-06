@@ -228,7 +228,7 @@ test.describe('Capsule Title - Step Room Creation', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 (제목 포함)
+    // 주문 생성 (제목 포함) - SKIP_PAYMENT=true이므로 자동으로 PAID 상태가 되고 캡슐 생성됨
     const orderRes = await api.post('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -244,23 +244,10 @@ test.describe('Capsule Title - Step Room Creation', () => {
     const orderBody = await orderRes.json();
     const orderId = orderBody.order_id;
 
-    // 결제 승인 (카카오페이)
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-
-    expect(approveRes.status()).toBe(201);
-    const approveBody = await approveRes.json();
-
-    // 대기실 정보에서 제목 확인
-    expect(approveBody.step_room).toBeDefined();
-    expect(approveBody.step_room.capsule_name).toBe('Summer Vacation 2025');
+    // SKIP_PAYMENT=true이므로 이미 캡슐이 생성되어 있음
+    expect(orderBody.capsule_id).toBeDefined();
+    expect(orderBody.step_room).toBeDefined();
+    expect(orderBody.step_room.capsule_name).toBe('Summer Vacation 2025');
 
     // DB에서 캡슐 제목 확인
     const capsuleRes = await client.query(
@@ -276,7 +263,7 @@ test.describe('Capsule Title - Step Room Creation', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 (제목 없음)
+    // 주문 생성 (제목 없음) - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
     const orderRes = await api.post('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -290,22 +277,8 @@ test.describe('Capsule Title - Step Room Creation', () => {
     const orderBody = await orderRes.json();
     const orderId = orderBody.order_id;
 
-    // 결제 승인
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-
-    expect(approveRes.status()).toBe(201);
-    const approveBody = await approveRes.json();
-
     // 기본 제목 확인
-    expect(approveBody.step_room.capsule_name).toBe('My Time Capsule');
+    expect(orderBody.step_room.capsule_name).toBe('My Time Capsule');
 
     // DB에서 캡슐 제목 확인
     const capsuleRes = await client.query(
@@ -317,11 +290,11 @@ test.describe('Capsule Title - Step Room Creation', () => {
     await cleanupUser(id);
   });
 
-  test('토스페이먼츠 결제에서도 제목이 올바르게 적용된다', async () => {
+  test('주문 상태를 PAID로 변경하면 제목이 올바르게 적용된다', async () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 (제목 포함)
+    // 주문 생성 (제목 포함) - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
     const orderRes = await api.post('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -334,34 +307,10 @@ test.describe('Capsule Title - Step Room Creation', () => {
     });
     expect(orderRes.status()).toBe(201);
     const orderBody = await orderRes.json();
-    const orderId = orderBody.order_id;
-
-    // 주문 정보 조회하여 실제 금액 확인
-    const getOrderRes = await api.get(`/api/orders/${orderId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const getOrderBody = await getOrderRes.json();
-    const orderAmount = getOrderBody.order.total_amount;
-
-    // 토스페이먼츠 결제 승인
-    const confirmRes = await api.post('/api/payments/toss/confirm', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        paymentKey: 'test_payment_key_' + Date.now(),
-        orderId: orderId,
-        amount: orderAmount,
-      },
-    });
-
-    if (confirmRes.status() !== 201) {
-      console.error('Toss confirm error:', await confirmRes.text());
-    }
-    expect(confirmRes.status()).toBe(201);
-    const confirmBody = await confirmRes.json();
 
     // 대기실 정보에서 제목 확인
-    expect(confirmBody.step_room).toBeDefined();
-    expect(confirmBody.step_room.capsule_name).toBe('Friends Forever');
+    expect(orderBody.step_room).toBeDefined();
+    expect(orderBody.step_room.capsule_name).toBe('Friends Forever');
 
     await cleanupUser(id);
   });
@@ -372,7 +321,7 @@ test.describe('Capsule Title - Step Room API', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성
+    // 주문 생성 - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
     const orderRes = await api.post('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -382,18 +331,8 @@ test.describe('Capsule Title - Step Room API', () => {
         capsule_title: 'Weekend Getaway',
       },
     });
-    const orderId = (await orderRes.json()).order_id;
-
-    // 결제 승인
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-    const inviteCode = (await approveRes.json()).step_room.invite_code;
+    const orderBody = await orderRes.json();
+    const inviteCode = orderBody.step_room.invite_code;
 
     // 초대 코드로 조회
     const queryRes = await api.get(
@@ -411,7 +350,7 @@ test.describe('Capsule Title - Step Room API', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성
+    // 주문 생성 - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
     const orderRes = await api.post('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -421,18 +360,8 @@ test.describe('Capsule Title - Step Room API', () => {
         capsule_title: 'New Year Wishes 2025',
       },
     });
-    const orderId = (await orderRes.json()).order_id;
-
-    // 결제 승인
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-    const roomId = (await approveRes.json()).step_room.room_id;
+    const orderBody = await orderRes.json();
+    const roomId = orderBody.step_room.room_id;
 
     // 대기실 상세 조회
     const detailRes = await api.get(`/api/capsules/step-rooms/${roomId}`, {
@@ -450,7 +379,7 @@ test.describe('Capsule Title - Step Room API', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성
+    // 주문 생성 - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
     const orderRes = await api.post('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -463,18 +392,8 @@ test.describe('Capsule Title - Step Room API', () => {
         capsule_title: 'Team Building 2025',
       },
     });
-    const orderId = (await orderRes.json()).order_id;
-
-    // 결제 승인
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-    const roomId = (await approveRes.json()).step_room.room_id;
+    const orderBody = await orderRes.json();
+    const roomId = orderBody.step_room.room_id;
 
     // 설정값 조회
     const settingsRes = await api.get(
@@ -506,18 +425,9 @@ test.describe('Capsule Title - Special Characters', () => {
         capsule_title: '우리의 소중한 추억',
       },
     });
-    const orderId = (await orderRes.json()).order_id;
+    const orderBody = await orderRes.json();
 
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-
-    const capsuleName = (await approveRes.json()).step_room.capsule_name;
+    const capsuleName = orderBody.step_room.capsule_name;
     expect(capsuleName).toBe('우리의 소중한 추억');
 
     await cleanupUser(id);
@@ -536,18 +446,9 @@ test.describe('Capsule Title - Special Characters', () => {
         capsule_title: '🎉 Happy Birthday 2025 🎂',
       },
     });
-    const orderId = (await orderRes.json()).order_id;
+    const orderBody = await orderRes.json();
 
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-
-    const capsuleName = (await approveRes.json()).step_room.capsule_name;
+    const capsuleName = orderBody.step_room.capsule_name;
     expect(capsuleName).toBe('🎉 Happy Birthday 2025 🎂');
 
     await cleanupUser(id);
@@ -566,21 +467,11 @@ test.describe('Capsule Title - Special Characters', () => {
         capsule_title: 'Best Friends #2025 @Seoul!',
       },
     });
-    const orderId = (await orderRes.json()).order_id;
+    const orderBody = await orderRes.json();
 
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-
-    const capsuleName = (await approveRes.json()).step_room.capsule_name;
+    const capsuleName = orderBody.step_room.capsule_name;
     expect(capsuleName).toBe('Best Friends #2025 @Seoul!');
 
     await cleanupUser(id);
   });
 });
-
