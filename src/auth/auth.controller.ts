@@ -22,6 +22,7 @@ import type { Request, Response } from 'express';
 import { AuthService, TokenResponse } from './auth.service';
 import { LocalLoginRequestDto } from './dto/local-login.request.dto';
 import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
+import { UserProfileResponseDto } from './dto/user-profile-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from '../entities';
@@ -186,38 +187,19 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '내 정보 조회',
-    description: '현재 로그인된 사용자의 정보를 반환합니다.',
+    description: '현재 로그인된 사용자의 정보와 통계를 반환합니다.',
   })
   @ApiResponse({
     status: 200,
     description: '유저 정보 조회 성공',
-    schema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', format: 'uuid' },
-        nickname: { type: 'string', example: '홍길동' },
-        email: { type: 'string', example: 'user@example.com' },
-        profileImg: { type: 'string', example: 'https://...' },
-        phoneNumber: { type: 'string', example: '010-1234-5678' },
-        isMarketingAgreed: { type: 'boolean' },
-        isPushAgreed: { type: 'boolean' },
-        isLocationTermAgreed: { type: 'boolean' },
-        createdAt: { type: 'string', format: 'date-time' },
-      },
-    },
+    type: UserProfileResponseDto,
   })
   @ApiResponse({ status: 401, description: '인증 실패' })
-  getMe(@CurrentUser() user: User) {
+  async getMe(@CurrentUser() user: User): Promise<UserProfileResponseDto> {
+    const data = await this.authService.getUserProfile(user.id);
     return {
-      id: user.id,
-      nickname: user.nickname,
-      email: user.email,
-      profileImg: user.profileImg,
-      phoneNumber: user.phoneNumber,
-      isMarketingAgreed: user.isMarketingAgreed,
-      isPushAgreed: user.isPushAgreed,
-      isLocationTermAgreed: user.isLocationTermAgreed,
-      createdAt: user.createdAt,
+      success: true,
+      data,
     };
   }
 

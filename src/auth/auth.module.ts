@@ -7,7 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { KakaoStrategy } from './strategies/kakao.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { User } from '../entities';
+import { User, Capsule, Friendship } from '../entities';
 
 @Module({
   imports: [
@@ -25,7 +25,7 @@ import { User } from '../entities';
         };
       },
     }),
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, Capsule, Friendship]),
   ],
   controllers: [AuthController],
   providers: [AuthService, KakaoStrategy, JwtStrategy],

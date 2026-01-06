@@ -10,9 +10,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { promisify } from 'util';
-import { User } from '../entities';
+import { User, Capsule, Friendship } from '../entities';
 import { LocalLoginRequestDto } from './dto/local-login.request.dto';
 import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
+import { FriendStatus } from '../common/enums';
 
 export interface KakaoUserInfo {
   kakaoId: string;
@@ -47,6 +48,10 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Capsule)
+    private readonly capsuleRepository: Repository<Capsule>,
+    @InjectRepository(Friendship)
+    private readonly friendshipRepository: Repository<Friendship>,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -284,5 +289,54 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  /**
+   * 사용자 프로필 정보 조회 (통계 포함)
+   */
+  async getUserProfile(userId: string) {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('사용자를 찾을 수 없습니다.');
+    }
+
+    // 캡슐 개수 (삭제되지 않은 모든 캡슐)
+    const capsuleCount = await this.capsuleRepository
+      .createQueryBuilder('capsule')
+      .where('capsule.user_id = :userId', { userId })
+      .andWhere('capsule.deleted_at IS NULL')
+      .getCount();
+
+    // 이스터에그 개수 (viewLimit > 0인 캡슐)
+    const easterEggCount = await this.capsuleRepository
+      .createQueryBuilder('capsule')
+      .where('capsule.user_id = :userId', { userId })
+      .andWhere('capsule.view_limit > 0')
+      .andWhere('capsule.deleted_at IS NULL')
+      .getCount();
+
+    // 친구 수 (CONNECTED 상태만)
+    // Friendship은 user_id < friend_id 정책이므로 양방향 체크
+    const friendCount = await this.friendshipRepository
+      .createQueryBuilder('friendship')
+      .where(
+        '(friendship.user_id = :userId OR friendship.friend_id = :userId)',
+        { userId },
+      )
+      .andWhere('friendship.status = :status', {
+        status: FriendStatus.CONNECTED,
+      })
+      .getCount();
+
+    return {
+      nickname: user.nickname,
+      email: user.email,
+      profileImageUrl: user.profileImg,
+      summary: {
+        capsuleCount,
+        easterEggCount,
+        friendCount,
+      },
+    };
   }
 }
