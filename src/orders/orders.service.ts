@@ -186,6 +186,7 @@ export class OrdersService {
       photoCount: dto.photo_count ?? 0,
       addMusic: dto.add_music ?? false,
       addVideo: dto.add_video ?? false,
+      capsuleTitle: dto.capsule_title ?? null,
       status: orderStatus,
     });
 

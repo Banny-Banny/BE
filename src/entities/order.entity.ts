@@ -76,6 +76,15 @@ export class Order {
   addVideo: boolean;
 
   @Column({
+    type: 'varchar',
+    length: 100,
+    name: 'capsule_title',
+    nullable: true,
+    comment: '생성할 타임캡슐 제목',
+  })
+  capsuleTitle: string | null;
+
+  @Column({
     type: 'enum',
     enum: OrderStatus,
     default: OrderStatus.PENDING_PAYMENT,

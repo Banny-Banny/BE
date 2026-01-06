@@ -553,7 +553,7 @@ export class CapsulesStepRoomService {
         userId: order.userId,
         productId: order.productId,
         orderId: order.id,
-        title: '나의 타임캡슐',
+        title: order.capsuleTitle || 'My Time Capsule',
         content: null,
         mediaUrls: null,
         mediaItemIds: null,
