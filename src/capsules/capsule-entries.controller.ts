@@ -14,7 +14,7 @@ import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
 
 @ApiTags('Capsules (Time Capsule)')
 @ApiBearerAuth('access-token')
-@Controller('capsules')
+@Controller('time-capsules')
 export class CapsuleEntriesController {
   constructor(private readonly capsulesService: CapsulesService) {}
 

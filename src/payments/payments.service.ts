@@ -13,12 +13,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Order } from '../entities/order.entity';
 import { Payment } from '../entities/payment.entity';
+import { Capsule } from '../entities/capsule.entity';
 import { ProductType } from '../entities/product.entity';
 import { OrderStatus, PaymentStatus } from '../common/enums';
 import { KakaoReadyDto } from './dto/kakao-ready.dto';
 import { KakaoApproveDto } from './dto/kakao-approve.dto';
 import { User } from '../entities/user.entity';
 import { CapsulesStepRoomService } from '../capsules/capsules-step-room.service';
+import { CapsulesService } from '../capsules/capsules.service';
 import { PaymentCancel } from '../entities/payment-cancel.entity';
 import { TossConfirmDto } from './dto/toss-confirm.dto';
 import { TossCancelDto } from './dto/toss-cancel.dto';
@@ -60,6 +62,7 @@ export class PaymentsService {
     @InjectRepository(PaymentCancel)
     private readonly paymentCancelRepository: Repository<PaymentCancel>,
     private readonly stepRoomService: CapsulesStepRoomService,
+    private readonly capsulesService: CapsulesService,
     private readonly dataSource: DataSource,
   ) {
     this.useMock = process.env.KAKAO_PAY_ENABLE !== 'true';
@@ -72,8 +75,22 @@ export class PaymentsService {
     this.cancelUrl = `${baseRedirect}/api/payments/kakao/cancel`;
     this.failUrl = `${baseRedirect}/api/payments/kakao/fail`;
     this.tossSecretKey = process.env.TOSS_SECRET_KEY || '';
-    this.tossBaseUrl =
+
+    // TOSS_BASE_URL 검증 및 설정
+    const tossBaseUrl =
       process.env.TOSS_BASE_URL || 'https://api.tosspayments.com';
+
+    // URL 유효성 검증
+    if (
+      !tossBaseUrl.startsWith('http://') &&
+      !tossBaseUrl.startsWith('https://')
+    ) {
+      throw new Error(
+        `Invalid TOSS_BASE_URL: "${tossBaseUrl}". Must start with http:// or https://. Check your environment variables.`,
+      );
+    }
+
+    this.tossBaseUrl = tossBaseUrl;
   }
 
   // =======================
@@ -282,12 +299,8 @@ export class PaymentsService {
     );
 
     // 참여 슬롯 조회 (current_participants 계산용)
-    const currentParticipants = await this.dataSource
-      .getRepository('capsule_participant_slots')
-      .createQueryBuilder('slot')
-      .where('slot.capsule_id = :capsuleId', { capsuleId: capsule.id })
-      .andWhere('slot.user_id IS NOT NULL')
-      .getCount();
+    const currentParticipants =
+      await this.capsulesService.getCurrentParticipantsCount(capsule.id);
 
     return {
       order_id: order.id,
@@ -545,7 +558,7 @@ export class PaymentsService {
     const tossRes = await this.callTossConfirm(dto);
 
     let payment: Payment;
-    let capsule: any;
+    let capsule: Capsule;
 
     try {
       // DB 트랜잭션
@@ -594,12 +607,8 @@ export class PaymentsService {
     }
 
     // 참여 슬롯 조회 (current_participants 계산용)
-    const currentParticipants = await this.dataSource
-      .getRepository('capsule_participant_slots')
-      .createQueryBuilder('slot')
-      .where('slot.capsule_id = :capsuleId', { capsuleId: capsule.id })
-      .andWhere('slot.user_id IS NOT NULL')
-      .getCount();
+    const currentParticipants =
+      await this.capsulesService.getCurrentParticipantsCount(capsule.id);
 
     return {
       order_id: order.id,

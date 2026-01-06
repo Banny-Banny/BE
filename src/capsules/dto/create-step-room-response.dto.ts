@@ -58,4 +58,10 @@ export class CreateStepRoomResponseDto {
     example: '2025-01-05T10:30:00.000Z',
   })
   created_at: Date;
+
+  @ApiProperty({
+    description: '딥링크 공유 URL (앱 설치 유저용)',
+    example: 'timeegg://room/join?invite_code=ABC123',
+  })
+  share_link: string;
 }

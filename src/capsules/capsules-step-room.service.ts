@@ -23,6 +23,7 @@ import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { MediaService } from '../media/media.service';
+import { CapsulesService } from './capsules.service';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -54,40 +55,12 @@ export class CapsulesStepRoomService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly mediaService: MediaService,
+    private readonly capsulesService: CapsulesService,
   ) {}
 
   // ==========================================
   // Private 헬퍼 메서드
   // ==========================================
-
-  /**
-   * 결제 완료된 캡슐 컨텍스트 조회
-   */
-  private async ensurePaidCapsuleContext(capsuleId: string) {
-    const capsule = await this.capsuleRepository.findOne({
-      where: { id: capsuleId },
-      relations: { order: true, product: true },
-    });
-
-    if (!capsule || capsule.deletedAt) {
-      throw new NotFoundException('CAPSULE_NOT_FOUND');
-    }
-
-    if (!capsule.order || capsule.order.status !== OrderStatus.PAID) {
-      throw new ForbiddenException('CAPSULE_PAYMENT_REQUIRED');
-    }
-
-    if (capsule.order.headcount < 1) {
-      throw new BadRequestException('HEADCOUNT_INVALID');
-    }
-
-    return {
-      capsule,
-      order: capsule.order,
-      product: capsule.product ?? null,
-      headcount: capsule.order.headcount,
-    };
-  }
 
   /**
    * 초대 코드 생성 (6자리 영숫자, 혼동 문자 제외)
@@ -240,10 +213,8 @@ export class CapsulesStepRoomService {
     }
 
     if (files.images && files.images.length > 0) {
-      const maxImagesPerPerson =
-        order.headcount > 0
-          ? Math.floor(order.photoCount / order.headcount)
-          : 0;
+      // photoCount는 이미 '인당 개수'이므로 그대로 사용
+      const maxImagesPerPerson = order.photoCount;
 
       const uploadedCount = files.images.length;
 
@@ -681,8 +652,8 @@ export class CapsulesStepRoomService {
 
     const order = capsule.order;
 
-    const maxImagesPerPerson =
-      order.headcount > 0 ? Math.floor(order.photoCount / order.headcount) : 0;
+    // photoCount는 이미 '인당 개수'이므로 그대로 사용
+    const maxImagesPerPerson = order.photoCount;
 
     const openDate = capsule.openAt
       ? capsule.openAt.toISOString().split('T')[0]
@@ -712,7 +683,8 @@ export class CapsulesStepRoomService {
       video?: MulterFile[];
     },
   ): Promise<ContentResponseDto> {
-    const { capsule, order } = await this.ensurePaidCapsuleContext(capsuleId);
+    const { capsule, order } =
+      await this.capsulesService.ensurePaidCapsuleContext(capsuleId);
 
     await this.validateStepRoomAccess(
       capsule,
@@ -752,7 +724,7 @@ export class CapsulesStepRoomService {
     longitude: number,
   ): Promise<SubmitCapsuleResponseDto> {
     const { capsule, headcount } =
-      await this.ensurePaidCapsuleContext(capsuleId);
+      await this.capsulesService.ensurePaidCapsuleContext(capsuleId);
 
     this.validateNotAlreadySubmitted(capsule);
 

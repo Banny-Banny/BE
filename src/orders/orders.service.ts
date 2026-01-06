@@ -15,6 +15,7 @@ import { Payment } from '../entities/payment.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderStatus, TimeOption, PaymentStatus } from '../common/enums';
 import { CapsulesStepRoomService } from '../capsules/capsules-step-room.service';
+import { CapsulesService } from '../capsules/capsules.service';
 
 @Injectable()
 export class OrdersService {
@@ -28,6 +29,7 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => CapsulesStepRoomService))
     private readonly stepRoomService: CapsulesStepRoomService,
+    private readonly capsulesService: CapsulesService,
   ) {}
 
   private validateDto(dto: CreateOrderDto) {
@@ -199,12 +201,8 @@ export class OrdersService {
       );
 
       // 참여 슬롯 조회 (current_participants 계산용)
-      const currentParticipants = await this.dataSource
-        .getRepository('capsule_participant_slots')
-        .createQueryBuilder('slot')
-        .where('slot.capsule_id = :capsuleId', { capsuleId: capsule.id })
-        .andWhere('slot.user_id IS NOT NULL')
-        .getCount();
+      const currentParticipants =
+        await this.capsulesService.getCurrentParticipantsCount(capsule.id);
 
       return {
         order_id: saved.id,

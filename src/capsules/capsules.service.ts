@@ -418,25 +418,10 @@ export class CapsulesService {
       }
     }
 
-    const hasLegacyMedia =
-      (dto.media_urls && dto.media_urls.length > 0) ||
-      (dto.media_types && dto.media_types.length > 0);
-    if (hasLegacyMedia && dto.media_ids && dto.media_ids.length > 0) {
-      throw new BadRequestException('MEDIA_INPUT_CONFLICT');
-    }
-
     const textBlocks = this.validateTextBlocks(dto.text_blocks);
-
-    const mediaUrls = dto.media_urls ?? [];
-    const mediaTypes = dto.media_types ?? [];
 
     const { mediaItemIds, mediaTypes: resolvedMediaTypes } =
       await this.resolveMediaByIds(user, dto.media_ids ?? [], product);
-
-    const { mediaUrls: normalizedUrls, mediaTypes: normalizedTypes } =
-      mediaItemIds === null
-        ? this.validateMedia(mediaUrls, mediaTypes, product)
-        : { mediaUrls: null, mediaTypes: resolvedMediaTypes };
 
     const capsule = new Capsule();
     capsule.userId = user.id;
@@ -445,9 +430,9 @@ export class CapsulesService {
     capsule.longitude = dto.longitude ?? null;
     capsule.title = dto.title;
     capsule.content = dto.content ?? null;
-    capsule.mediaUrls = normalizedUrls;
+    capsule.mediaUrls = null;
     capsule.mediaItemIds = mediaItemIds;
-    capsule.mediaTypes = normalizedTypes;
+    capsule.mediaTypes = resolvedMediaTypes;
     capsule.openAt = openAt;
     capsule.isLocked = true;
     capsule.viewLimit = viewLimit;
@@ -575,8 +560,6 @@ export class CapsulesService {
       is_locked: isLocked,
       view_limit: capsule.viewLimit,
       view_count: capsule.viewCount,
-      media_types: capsule.mediaTypes,
-      media_urls: capsule.mediaUrls,
       media_items: mediaItems,
       product: capsule.product,
       latitude: capsule.latitude,
@@ -725,8 +708,6 @@ export class CapsulesService {
             : null,
         type: capsuleType,
         is_mine: isMine,
-        media_types: capsule.mediaTypes,
-        media_urls: capsule.mediaUrls,
         media_items: mediaItems,
         product: capsule.product
           ? {
@@ -841,7 +822,11 @@ export class CapsulesService {
     });
   }
 
-  private async ensurePaidCapsuleContext(capsuleId: string) {
+  /**
+   * 결제 완료된 캡슐 컨텍스트 조회 (공통 메서드)
+   * @public - 다른 서비스에서도 사용 가능
+   */
+  async ensurePaidCapsuleContext(capsuleId: string) {
     const capsule = await this.capsuleRepository.findOne({
       where: { id: capsuleId },
       relations: { order: true, product: true },
@@ -865,6 +850,18 @@ export class CapsulesService {
       product: capsule.product ?? null,
       headcount: capsule.order.headcount,
     };
+  }
+
+  /**
+   * 참여자 수 조회 (공통 메서드)
+   * @public - 다른 서비스에서도 사용 가능
+   */
+  async getCurrentParticipantsCount(capsuleId: string): Promise<number> {
+    return await this.slotRepository
+      .createQueryBuilder('slot')
+      .where('slot.capsule_id = :capsuleId', { capsuleId })
+      .andWhere('slot.user_id IS NOT NULL')
+      .getCount();
   }
 
   private async ensureSlotsCreated(capsuleId: string, headcount: number) {
@@ -907,7 +904,13 @@ export class CapsulesService {
     });
   }
 
-  private async logCapsuleAccess(capsuleId: string, viewerId: string) {
+  /**
+   * 캡슐 조회 로그 기록 (공통 메서드)
+   * @public - 다른 서비스에서도 사용 가능
+   * @param capsuleId 캡슐 ID
+   * @param viewerId 조회자 ID
+   */
+  async logCapsuleAccess(capsuleId: string, viewerId: string): Promise<void> {
     try {
       await this.accessLogRepository.insert({ capsuleId, viewerId });
     } catch {
@@ -1143,7 +1146,7 @@ export class CapsulesService {
         throw new NotFoundException('CAPSULE_NOT_FOUND');
       }
 
-      // 본인 캡슐인 경우 로그 기록하지 않음
+      // 본인 캡슐인 경우 로그 기록하지 않고, view_count도 증가시키지 않음
       if (capsule.userId === user.id) {
         return {
           success: true,
@@ -1152,7 +1155,7 @@ export class CapsulesService {
         };
       }
 
-      // 2. access_log에 삽입 시도 (UNIQUE 제약으로 중복 방지)
+      // 2. 다른 사람의 캡슐인 경우에만 access_log에 삽입 시도 (UNIQUE 제약으로 중복 방지)
       let isFirstView = false;
       try {
         await manager.getRepository(CapsuleAccessLog).insert({

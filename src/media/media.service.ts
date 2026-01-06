@@ -17,21 +17,20 @@ import { Media, User } from '../entities';
 import { PresignMediaDto } from './dto/presign-media.dto';
 import { CompleteMediaDto } from './dto/complete-media.dto';
 import { randomUUID } from 'crypto';
+import { MulterFile } from './types/multer-file.interface';
 
-// Multer 파일 타입 정의
-interface MulterFile {
-  fieldname: string;
-  originalname: string;
-  encoding: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
-}
-
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const VIDEO_TYPES = ['video/mp4'];
-// MP3, M4A(AAC 컨테이너) 허용
-const AUDIO_TYPES = ['audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'];
+const IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+const VIDEO_TYPES = ['video/mp4', 'video/webm'];
+// MP3, M4A(AAC 컨테이너) 허용 - 다양한 브라우저/클라이언트의 MIME 타입 지원
+const AUDIO_TYPES = [
+  'audio/mpeg', // MP3
+  'audio/mp3', // MP3 (일부 클라이언트)
+  'audio/mp4', // M4A (표준)
+  'audio/x-m4a', // M4A (Safari/iOS)
+  'audio/aac', // AAC
+  'audio/m4a', // M4A (일부 클라이언트)
+  'audio/x-aac', // AAC (일부 클라이언트)
+];
 const IMAGE_MAX = 5 * 1024 * 1024; // 5MB
 const VIDEO_MAX = 200 * 1024 * 1024; // 200MB
 const AUDIO_MAX = 20 * 1024 * 1024; // 20MB

@@ -76,8 +76,13 @@ export class CapsulesController {
             distance_m: 120.5,
             type: 'EASTER_EGG',
             is_mine: false,
-            media_types: ['IMAGE'],
-            media_urls: ['https://...'],
+            media_items: [
+              {
+                media_id: 'uuid',
+                type: 'IMAGE',
+                object_key: 'media/user-id/IMAGE/uuid.jpg',
+              },
+            ],
             product: {
               id: 'uuid|null',
               product_type: 'EASTER_EGG',
@@ -144,7 +149,7 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그(캡슐) 생성',
     description:
-      '제목(100자)/텍스트 블록(각 500자)/미디어(media_ids 또는 media_urls/types), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409.',
+      '제목(100자)/텍스트 블록(각 500자)/미디어(media_ids), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409. media_ids는 /api/media/upload 또는 /api/media/complete로 업로드 완료 후 받은 ID를 사용합니다.',
   })
   @ApiResponse({ status: 201, description: '생성 성공' })
   @ApiResponse({ status: 400, description: '검증 실패' })
@@ -162,8 +167,6 @@ export class CapsulesController {
       open_at: capsule.openAt,
       is_locked: capsule.isLocked,
       view_limit: capsule.viewLimit,
-      media_types: capsule.mediaTypes,
-      media_urls: capsule.mediaUrls,
       media_items: mediaItems,
       text_blocks: capsule.textBlocks,
     };
@@ -229,13 +232,11 @@ export class CapsulesController {
         is_locked: true,
         view_limit: 1,
         view_count: 1,
-        media_types: ['IMAGE'],
-        media_urls: ['https://...'],
         media_items: [
           {
             media_id: 'uuid',
             type: 'IMAGE',
-            object_key: 'https://...',
+            object_key: 'media/user-id/IMAGE/uuid.jpg',
           },
         ],
         product: {
@@ -282,8 +283,6 @@ export class CapsulesController {
       is_locked: capsule.is_locked,
       view_limit: capsule.view_limit,
       view_count: capsule.view_count,
-      media_types: capsule.media_types,
-      media_urls: capsule.media_urls,
       media_items: capsule.media_items,
       product: capsule.product
         ? {

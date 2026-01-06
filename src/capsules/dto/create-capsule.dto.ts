@@ -58,20 +58,14 @@ export class CreateCapsuleDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(3)
-  @IsString({ each: true })
-  media_urls?: (string | null)[];
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(3)
-  @IsEnum(MediaType, { each: true })
-  media_types?: (MediaType | null)[];
-
-  @IsOptional()
-  @IsArray()
   @ArrayMaxSize(10)
   @IsUUID('all', { each: true })
+  @ApiProperty({
+    description: '미디어 ID 배열. /api/media/upload 또는 /api/media/complete로 업로드 완료 후 받은 media_id 사용',
+    required: false,
+    type: [String],
+    example: ['550e8400-e29b-41d4-a716-446655440000'],
+  })
   media_ids?: string[];
 
   @IsOptional()
