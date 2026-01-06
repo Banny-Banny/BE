@@ -8,6 +8,7 @@ import { CapsulesModule } from './capsules/capsules.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { MediaModule } from './media/media.module';
+import { MeModule } from './me/me.module';
 
 @Module({
   imports: [
@@ -25,6 +26,8 @@ import { MediaModule } from './media/media.module';
     OrdersModule,
     PaymentsModule,
     MediaModule,
+    // 마이페이지 모듈
+    MeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -10,3 +10,4 @@ export * from './customer-service.entity';
 export * from './media.entity';
 export * from './capsule-participant-slot.entity';
 export * from './capsule-entry.entity';
+export * from './notification.entity';

@@ -15,6 +15,7 @@ import { CustomerService } from './customer-service.entity';
 import { Media } from './media.entity';
 import { CapsuleParticipantSlot } from './capsule-participant-slot.entity';
 import { CapsuleEntry } from './capsule-entry.entity';
+import { Notification } from './notification.entity';
 
 /**
  * 사용자 기본 정보
@@ -173,4 +174,7 @@ export class User {
 
   @OneToMany(() => CapsuleEntry, (entry) => entry.user)
   entries: CapsuleEntry[];
+
+  @OneToMany(() => Notification, (notification) => notification.user)
+  notifications: Notification[];
 }

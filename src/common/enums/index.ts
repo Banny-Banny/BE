@@ -61,3 +61,14 @@ export enum RoomStatus {
   EXPIRED = 'EXPIRED', // 마감시한 경과
   BURIED = 'BURIED', // 매장 완료
 }
+
+/**
+ * 알림 타입 - 사용자에게 발송되는 알림 종류
+ */
+export enum NotificationType {
+  CAPSULE_OPEN = 'CAPSULE_OPEN', // 타임캡슐 오픈 알림
+  FRIEND_REQUEST = 'FRIEND_REQUEST', // 친구 요청 알림
+  FRIEND_ACCEPTED = 'FRIEND_ACCEPTED', // 친구 수락 알림
+  SYSTEM = 'SYSTEM', // 시스템 공지
+  MARKETING = 'MARKETING', // 마케팅 알림
+}

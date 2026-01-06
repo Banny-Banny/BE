@@ -13,6 +13,7 @@ import {
   Media,
   CapsuleParticipantSlot,
   CapsuleEntry,
+  Notification,
 } from '../entities';
 
 /**
@@ -73,6 +74,7 @@ const dataSource = new DataSource({
     Friendship,
     CustomerService,
     Media,
+    Notification,
   ],
   // ts-node 실행 시 TS, 빌드 산출물 실행 시 JS 마이그레이션을 로드
   migrations: [migrationsGlob],
