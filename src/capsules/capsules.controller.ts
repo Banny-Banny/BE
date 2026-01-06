@@ -6,15 +6,19 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
   ApiQuery,
 } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
@@ -25,6 +29,7 @@ import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
 import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 import { MediaType } from '../common/enums';
 import { GetViewersResponseDto } from './dto/get-viewers-response.dto';
+import { MulterFile } from '../media/types/multer-file.interface';
 
 type MediaItemResponse = {
   media_id: string | null;
@@ -146,18 +151,24 @@ export class CapsulesController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FilesInterceptor('media_files', 10))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: '이스터에그(캡슐) 생성',
     description:
-      '제목(100자)/텍스트 블록(각 500자)/미디어(media_ids), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409. media_ids는 /api/media/upload 또는 /api/media/complete로 업로드 완료 후 받은 ID를 사용합니다.',
+      '제목(100자)/텍스트 블록(각 500자)/미디어 파일(최대 10개), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409. 미디어 파일은 form-data로 직접 업로드합니다.',
   })
   @ApiResponse({ status: 201, description: '생성 성공' })
   @ApiResponse({ status: 400, description: '검증 실패' })
   @ApiResponse({ status: 401, description: '인증 실패' })
   @ApiResponse({ status: 404, description: 'product_id 미존재' })
   @ApiResponse({ status: 409, description: '슬롯 부족' })
-  async create(@CurrentUser() user: User, @Body() dto: CreateCapsuleDto) {
-    const capsule = await this.capsulesService.create(user, dto);
+  async create(
+    @CurrentUser() user: User,
+    @Body() dto: CreateCapsuleDto,
+    @UploadedFiles() files?: MulterFile[],
+  ) {
+    const capsule = await this.capsulesService.create(user, dto, files);
     const mediaItems = extractMediaItems(
       capsule as { mediaItems?: MediaItemResponse[] },
     );

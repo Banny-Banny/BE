@@ -1,16 +1,28 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
 import { CapsulesService } from './capsules.service';
 import { GetCapsuleParamDto } from './dto/get-capsule.dto';
 import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
+import { MulterFile } from '../media/types/multer-file.interface';
 
 @ApiTags('Capsules (Time Capsule)')
 @ApiBearerAuth('access-token')
@@ -37,10 +49,12 @@ export class CapsuleEntriesController {
 
   @Post(':id/entries')
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FilesInterceptor('media_files', 3))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: '타임캡슐 글 작성 (슬롯 1회 작성)',
     description:
-      '사용자는 자신이 배정된 슬롯(또는 미배정 슬롯)을 점유하여 한 번만 글/미디어를 작성할 수 있습니다. 미디어는 presign 완료된 media_id로 첨부합니다.',
+      '사용자는 자신이 배정된 슬롯(또는 미배정 슬롯)을 점유하여 한 번만 글/미디어를 작성할 수 있습니다. 미디어 파일은 form-data로 직접 업로드합니다.',
   })
   @ApiResponse({ status: 201, description: '작성 성공' })
   @ApiResponse({ status: 400, description: '검증 실패' })
@@ -51,7 +65,8 @@ export class CapsuleEntriesController {
     @CurrentUser() user: User,
     @Param() params: GetCapsuleParamDto,
     @Body() dto: CreateCapsuleEntryDto,
+    @UploadedFiles() files?: MulterFile[],
   ) {
-    return this.capsulesService.createCapsuleEntry(user, params.id, dto);
+    return this.capsulesService.createCapsuleEntry(user, params.id, dto, files);
   }
 }

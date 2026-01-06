@@ -111,6 +111,13 @@ export class MediaService {
     throw new BadRequestException('INVALID_CONTENT_TYPE');
   }
 
+  /**
+   * MIME type으로 MediaType 결정 (public 메서드)
+   */
+  resolveMediaTypeFromMimetype(mimetype: string): MediaType {
+    return this.resolveMediaType(mimetype);
+  }
+
   private buildObjectKey(userId: string, type: MediaType, filename: string) {
     const ext = filename.includes('.') ? filename.split('.').pop() : '';
     const key = `${this.prefix}/${userId}/${type}/${randomUUID()}${ext ? `.${ext}` : ''}`;

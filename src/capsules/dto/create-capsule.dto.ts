@@ -2,7 +2,6 @@ import {
   ArrayMaxSize,
   IsArray,
   IsDateString,
-  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -14,7 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { MediaType } from '../../common/enums';
+import { MulterFile } from '../../media/types/multer-file.interface';
 
 export class TextBlockDto {
   @IsInt()
@@ -61,12 +60,23 @@ export class CreateCapsuleDto {
   @ArrayMaxSize(10)
   @IsUUID('all', { each: true })
   @ApiProperty({
-    description: '미디어 ID 배열. /api/media/upload 또는 /api/media/complete로 업로드 완료 후 받은 media_id 사용',
+    description: '미디어 ID 배열 (기존 방식 호환용, 선택적)',
     required: false,
     type: [String],
     example: ['550e8400-e29b-41d4-a716-446655440000'],
   })
   media_ids?: string[];
+
+  @ApiProperty({
+    description: '미디어 파일 배열 (form-data: media_files)',
+    required: false,
+    type: 'array',
+    items: {
+      type: 'string',
+      format: 'binary',
+    },
+  })
+  media_files?: MulterFile[];
 
   @IsOptional()
   @IsArray()

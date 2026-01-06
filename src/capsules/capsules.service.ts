@@ -27,6 +27,7 @@ import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
 import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 import { MediaService } from '../media/media.service';
 import { GetViewersResponseDto } from './dto/get-viewers-response.dto';
+import { MulterFile } from '../media/types/multer-file.interface';
 
 @Injectable()
 export class CapsulesService {
@@ -374,7 +375,11 @@ export class CapsulesService {
     return slots;
   }
 
-  async create(user: User, dto: CreateCapsuleDto): Promise<Capsule> {
+  async create(
+    user: User,
+    dto: CreateCapsuleDto,
+    files?: MulterFile[],
+  ): Promise<Capsule> {
     if (!user) {
       throw new ConflictException('USER_NOT_FOUND');
     }
@@ -420,8 +425,51 @@ export class CapsulesService {
 
     const textBlocks = this.validateTextBlocks(dto.text_blocks);
 
-    const { mediaItemIds, mediaTypes: resolvedMediaTypes } =
-      await this.resolveMediaByIds(user, dto.media_ids ?? [], product);
+    // 미디어 처리: 파일 업로드 또는 기존 media_ids 사용
+    let mediaItemIds: string[] | null = null;
+    let resolvedMediaTypes: (MediaType | null)[] | null = null;
+
+    if (files && files.length > 0) {
+      // form-data로 파일이 넘어온 경우: 직접 업로드
+      const uploadedMedia: Media[] = [];
+      for (const file of files) {
+        const type = this.mediaService.resolveMediaTypeFromMimetype(
+          file.mimetype,
+        );
+        const media = await this.mediaService.uploadMulterFile(
+          user.id,
+          file,
+          type,
+        );
+        uploadedMedia.push(media);
+      }
+
+      // 업로드된 미디어 검증
+      const limit = product?.maxMediaCount ?? this.DEFAULT_MEDIA_LIMIT;
+      if (limit > 0 && uploadedMedia.length > limit) {
+        throw new BadRequestException('MEDIA_LIMIT_EXCEEDED');
+      }
+
+      if (product && product.mediaTypes && product.mediaTypes.length > 0) {
+        uploadedMedia.forEach((m) => {
+          if (!product.mediaTypes!.includes(m.type)) {
+            throw new BadRequestException('MEDIA_TYPE_NOT_ALLOWED_FOR_PRODUCT');
+          }
+        });
+      }
+
+      mediaItemIds = uploadedMedia.map((m) => m.id);
+      resolvedMediaTypes = uploadedMedia.map((m) => m.type);
+    } else if (dto.media_ids && dto.media_ids.length > 0) {
+      // 기존 방식: media_ids 사용
+      const resolved = await this.resolveMediaByIds(
+        user,
+        dto.media_ids,
+        product,
+      );
+      mediaItemIds = resolved.mediaItemIds;
+      resolvedMediaTypes = resolved.mediaTypes;
+    }
 
     const capsule = new Capsule();
     capsule.userId = user.id;
@@ -989,6 +1037,7 @@ export class CapsulesService {
     user: User,
     capsuleId: string,
     dto: CreateCapsuleEntryDto,
+    files?: MulterFile[],
   ) {
     const trimmedContent = dto.content?.trim() ?? '';
     if (!trimmedContent) {
@@ -1003,23 +1052,64 @@ export class CapsulesService {
 
     await this.ensureSlotsCreated(capsule.id, headcount);
 
-    const mediaResolved = await this.resolveMediaByIds(
-      user,
-      dto.media_item_ids ?? [],
-      product,
-    );
+    // 미디어 처리: 파일 업로드 또는 기존 media_item_ids 사용
+    let mediaItemIds: string[] | null = null;
+    let normalizedMediaTypes: MediaType[] | null = null;
+    let mediaMap = new Map<string, Media>();
 
-    const normalizedMediaTypes =
-      mediaResolved.mediaTypes?.map((type) => {
-        if (!type) {
-          throw new BadRequestException('MEDIA_TYPE_REQUIRED');
-        }
-        return type;
-      }) ?? null;
+    if (files && files.length > 0) {
+      // form-data로 파일이 넘어온 경우: 직접 업로드
+      const uploadedMedia: Media[] = [];
+      for (const file of files) {
+        const type = this.mediaService.resolveMediaTypeFromMimetype(
+          file.mimetype,
+        );
+        const media = await this.mediaService.uploadMulterFile(
+          user.id,
+          file,
+          type,
+        );
+        uploadedMedia.push(media);
+      }
 
-    const mediaMap = new Map(
-      mediaResolved.mediaEntities.map((m) => [m.id, m] as const),
-    );
+      // 업로드된 미디어 검증
+      const limit = product?.maxMediaCount ?? 3;
+      if (limit > 0 && uploadedMedia.length > limit) {
+        throw new BadRequestException('MEDIA_LIMIT_EXCEEDED');
+      }
+
+      if (product && product.mediaTypes && product.mediaTypes.length > 0) {
+        uploadedMedia.forEach((m) => {
+          if (!product.mediaTypes!.includes(m.type)) {
+            throw new BadRequestException('MEDIA_TYPE_NOT_ALLOWED_FOR_PRODUCT');
+          }
+        });
+      }
+
+      mediaItemIds = uploadedMedia.map((m) => m.id);
+      normalizedMediaTypes = uploadedMedia.map((m) => m.type);
+      mediaMap = new Map(uploadedMedia.map((m) => [m.id, m] as const));
+    } else if (dto.media_item_ids && dto.media_item_ids.length > 0) {
+      // 기존 방식: media_item_ids 사용
+      const mediaResolved = await this.resolveMediaByIds(
+        user,
+        dto.media_item_ids,
+        product,
+      );
+
+      normalizedMediaTypes =
+        mediaResolved.mediaTypes?.map((type) => {
+          if (!type) {
+            throw new BadRequestException('MEDIA_TYPE_REQUIRED');
+          }
+          return type;
+        }) ?? null;
+
+      mediaItemIds = mediaResolved.mediaItemIds;
+      mediaMap = new Map(
+        mediaResolved.mediaEntities.map((m) => [m.id, m] as const),
+      );
+    }
 
     const result = await this.dataSource.transaction<{
       savedEntry: CapsuleEntry;
@@ -1060,7 +1150,7 @@ export class CapsulesService {
         slotId: targetSlot.id,
         userId: user.id,
         content: trimmedContent,
-        mediaItemIds: mediaResolved.mediaItemIds,
+        mediaItemIds: mediaItemIds,
         mediaTypes: normalizedMediaTypes,
       });
 
