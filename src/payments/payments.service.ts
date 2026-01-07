@@ -334,8 +334,18 @@ export class PaymentsService {
   }
 
   private async callTossConfirm(dto: TossConfirmDto) {
+    const requestTime = new Date();
+    console.log('🔵 [Toss Confirm] 승인 요청 시작:', {
+      orderId: dto.orderId,
+      paymentKey: dto.paymentKey.substring(0, 20) + '...',
+      amount: dto.amount,
+      timestamp: requestTime.toISOString(),
+      useMock: this.useTossMock,
+    });
+
     if (this.useTossMock) {
       const now = new Date();
+      console.log('✅ [Toss Confirm] Mock 모드로 즉시 완료');
       return {
         paymentKey: dto.paymentKey,
         orderId: dto.orderId,
@@ -386,6 +396,11 @@ export class PaymentsService {
       };
     }
     const url = `${this.tossBaseUrl}/v1/payments/confirm`;
+    console.log('🌐 [Toss Confirm] 실제 API 호출:', {
+      url,
+      hasAuth: !!this.tossSecretKey,
+    });
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -398,11 +413,31 @@ export class PaymentsService {
         amount: dto.amount,
       }),
     });
+
+    const elapsedMs = Date.now() - requestTime.getTime();
+    console.log('⏱️ [Toss Confirm] API 응답 수신:', {
+      status: res.status,
+      ok: res.ok,
+      elapsedMs,
+    });
+
     if (!res.ok) {
       const text = await res.text();
+      console.error('❌ [Toss Confirm] API 에러:', {
+        status: res.status,
+        response: text,
+        elapsedMs,
+      });
       throw new BadRequestException(`TOSS_CONFIRM_FAILED: ${text}`);
     }
-    return await res.json();
+
+    const result = await res.json();
+    console.log('✅ [Toss Confirm] 승인 완료:', {
+      paymentKey: result.paymentKey,
+      status: result.status,
+      totalElapsedMs: Date.now() - requestTime.getTime(),
+    });
+    return result;
   }
 
   private async callTossGetByPaymentKey(paymentKey: string) {
@@ -531,17 +566,32 @@ export class PaymentsService {
   }
 
   async tossConfirm(user: User, dto: TossConfirmDto) {
+    const startTime = new Date();
+    console.log('🟢 [tossConfirm] 결제 승인 프로세스 시작:', {
+      userId: user.id,
+      orderId: dto.orderId,
+      paymentKey: dto.paymentKey.substring(0, 20) + '...',
+      amount: dto.amount,
+      timestamp: startTime.toISOString(),
+    });
+
     const order = await this.orderRepository.findOne({
       where: { id: dto.orderId },
       relations: { product: true },
     });
     if (!order) {
+      console.error('❌ [tossConfirm] 주문을 찾을 수 없음:', dto.orderId);
       throw new NotFoundException('ORDER_NOT_FOUND');
     }
     if (order.userId !== user.id) {
+      console.error('❌ [tossConfirm] 주문 소유자 불일치:', {
+        orderUserId: order.userId,
+        requestUserId: user.id,
+      });
       throw new UnauthorizedException('ORDER_NOT_OWNED');
     }
     if (order.status === OrderStatus.PAID) {
+      console.error('❌ [tossConfirm] 이미 결제 완료된 주문:', order.id);
       throw new BadRequestException('ORDER_ALREADY_PAID');
     }
     if (
@@ -551,9 +601,14 @@ export class PaymentsService {
       throw new NotFoundException('PRODUCT_NOT_FOUND_OR_INVALID');
     }
     if (order.totalAmount !== dto.amount) {
+      console.error('❌ [tossConfirm] 금액 불일치:', {
+        orderAmount: order.totalAmount,
+        requestAmount: dto.amount,
+      });
       throw new BadRequestException('AMOUNT_MISMATCH');
     }
 
+    console.log('✅ [tossConfirm] 주문 검증 완료, PG 호출 시작');
     // PG 호출
     const tossRes = await this.callTossConfirm(dto);
 
@@ -609,6 +664,14 @@ export class PaymentsService {
     // 참여 슬롯 조회 (current_participants 계산용)
     const currentParticipants =
       await this.capsulesService.getCurrentParticipantsCount(capsule.id);
+
+    const totalElapsedMs = Date.now() - startTime.getTime();
+    console.log('✅ [tossConfirm] 결제 승인 프로세스 완료:', {
+      orderId: order.id,
+      capsuleId: capsule.id,
+      totalElapsedMs,
+      totalElapsedSec: (totalElapsedMs / 1000).toFixed(2),
+    });
 
     return {
       order_id: order.id,
