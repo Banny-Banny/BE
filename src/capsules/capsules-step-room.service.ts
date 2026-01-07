@@ -595,6 +595,7 @@ export class CapsulesStepRoomService {
   async getStepRoomDetail(
     capsuleId: string,
     userId: string,
+    inviteCode?: string,
   ): Promise<StepRoomDetailDto> {
     const capsule = await this.capsuleRepository.findOne({
       where: { id: capsuleId },
@@ -610,9 +611,19 @@ export class CapsulesStepRoomService {
       order: { slotIndex: 'ASC' },
     });
 
+    // 접근 권한 검증: 참여자이거나 올바른 초대 코드를 가진 경우
     const isParticipant = slots.some((s) => s.userId === userId);
-    if (!isParticipant) {
-      throw new ForbiddenException('참여자만 조회할 수 있습니다');
+    const hasValidInviteCode =
+      inviteCode &&
+      capsule.inviteCode &&
+      inviteCode.toUpperCase() === capsule.inviteCode.toUpperCase();
+
+    if (!isParticipant && !hasValidInviteCode) {
+      throw new ForbiddenException({
+        success: false,
+        error: 'UNAUTHORIZED_ACCESS',
+        message: '참여자만 조회할 수 있습니다',
+      });
     }
 
     return {

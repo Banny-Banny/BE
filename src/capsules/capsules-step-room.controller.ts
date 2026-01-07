@@ -175,6 +175,11 @@ export class CapsulesStepRoomController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: '대기실 상세 조회 (참여자 전용)' })
+  @ApiQuery({
+    name: 'invite_code',
+    required: false,
+    description: '초대 코드 (6자리) - 아직 슬롯이 배정되지 않은 경우 필수',
+  })
   @ApiResponse({
     status: 200,
     description: '대기실 상세 정보 조회 성공',
@@ -185,8 +190,13 @@ export class CapsulesStepRoomController {
   async getStepRoomDetail(
     @Param('capsuleId') capsuleId: string,
     @CurrentUser() user: User,
+    @Query('invite_code') inviteCode?: string,
   ): Promise<StepRoomDetailDto> {
-    return this.stepRoomService.getStepRoomDetail(capsuleId, user.id);
+    return this.stepRoomService.getStepRoomDetail(
+      capsuleId,
+      user.id,
+      inviteCode,
+    );
   }
 
   @Post('step-rooms/:capsuleId/my-content')
