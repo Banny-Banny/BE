@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -38,7 +39,6 @@ import {
   JoinStepRoomDto,
   JoinStepRoomResponseDto,
 } from './dto/join-step-room.dto';
-import { GetStepRoomByInviteCodeQueryDto } from './dto/get-step-room-query.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -141,16 +141,29 @@ export class CapsulesStepRoomController {
 
   @Get('step-rooms')
   @ApiOperation({ summary: '초대 코드로 대기실 조회' })
+  @ApiQuery({
+    name: 'invite_code',
+    required: true,
+    description: '초대 코드 (6자리 영숫자)',
+    example: 'R2Q6VZ',
+  })
   @ApiResponse({
     status: 200,
     description: '대기실 정보 조회 성공',
     type: StepRoomResponseDto,
   })
   @ApiResponse({ status: 404, description: '존재하지 않는 초대 코드' })
+  @ApiResponse({ status: 400, description: '초대 코드 누락/형식 오류' })
   async getStepRoomByInviteCode(
-    @Query() query: GetStepRoomByInviteCodeQueryDto,
+    @Query('invite_code') inviteCode?: string,
   ): Promise<StepRoomResponseDto> {
-    return this.stepRoomService.findCapsuleByInviteCode(query.invite_code);
+    if (!inviteCode) {
+      throw new BadRequestException('INVITE_CODE_REQUIRED');
+    }
+    if (inviteCode.length !== 6) {
+      throw new BadRequestException('INVITE_CODE_INVALID');
+    }
+    return this.stepRoomService.findCapsuleByInviteCode(inviteCode);
   }
 
   @Get('step-rooms/:capsuleId/settings')
