@@ -59,13 +59,13 @@ interface MulterFile {
  * - POST /capsules/step-rooms/:capsuleId/submit - 최종 제출
  */
 @ApiTags('Capsules - Step Room')
-@ApiBearerAuth('access-token')
 @Controller('capsules')
 export class CapsulesStepRoomController {
   constructor(private readonly stepRoomService: CapsulesStepRoomService) {}
 
   @Post('step-rooms/create')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '타임캡슐(대기실) 생성',
     description:
@@ -173,6 +173,7 @@ export class CapsulesStepRoomController {
 
   @Get('step-rooms/:capsuleId')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: '대기실 상세 조회 (참여자 전용)' })
   @ApiResponse({
     status: 200,
@@ -190,6 +191,7 @@ export class CapsulesStepRoomController {
 
   @Post('step-rooms/:capsuleId/my-content')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'images', maxCount: 5 },
@@ -277,6 +279,7 @@ export class CapsulesStepRoomController {
 
   @Post('step-rooms/:capsuleId/submit')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '타임캡슐 최종 제출',
     description:
