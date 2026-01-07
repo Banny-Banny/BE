@@ -67,6 +67,7 @@ export class CreateCapsuleDto {
   })
   media_ids?: string[];
 
+  @IsOptional()
   @ApiProperty({
     description: '미디어 파일 배열 (form-data: media_files)',
     required: false,

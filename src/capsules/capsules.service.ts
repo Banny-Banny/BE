@@ -1219,7 +1219,7 @@ export class CapsulesService {
 
   /**
    * 이스터에그 발견 기록
-   * 기존 logCapsuleAccess() 메서드를 재사용하여 구현
+   * 중복 호출을 방지하기 위해 먼저 기존 로그를 확인한 후 처리
    */
   async recordCapsuleViewer(
     user: User,
@@ -1227,9 +1227,13 @@ export class CapsulesService {
   ): Promise<{ success: boolean; message: string; is_first_view: boolean }> {
     // 트랜잭션으로 감싸서 access_log 삽입과 view_count 증가를 원자적으로 처리
     return await this.dataSource.transaction(async (manager) => {
-      // 1. 캡슐 존재 확인
-      const capsule = await manager.getRepository(Capsule).findOne({
+      const capsuleRepo = manager.getRepository(Capsule);
+      const accessLogRepo = manager.getRepository(CapsuleAccessLog);
+
+      // 1. 캡슐 존재 확인 및 잠금
+      const capsule = await capsuleRepo.findOne({
         where: { id: capsuleId },
+        lock: { mode: 'pessimistic_write' }, // 동시성 제어를 위한 잠금
       });
 
       if (!capsule || capsule.deletedAt) {
@@ -1245,33 +1249,37 @@ export class CapsulesService {
         };
       }
 
-      // 2. 다른 사람의 캡슐인 경우에만 access_log에 삽입 시도 (UNIQUE 제약으로 중복 방지)
-      let isFirstView = false;
-      try {
-        await manager.getRepository(CapsuleAccessLog).insert({
+      // 2. 기존 조회 로그 확인 (중복 방지)
+      const existingLog = await accessLogRepo.findOne({
+        where: {
           capsuleId,
           viewerId: user.id,
-        });
-        isFirstView = true;
+        },
+      });
 
-        // 3. 첫 조회인 경우에만 view_count 증가 (atomic)
-        await manager
-          .getRepository(Capsule)
-          .increment({ id: capsuleId }, 'viewCount', 1);
-      } catch (error: unknown) {
-        // UNIQUE 위반(중복 조회)은 무시
-        const dbError = error as { code?: string };
-        if (dbError.code !== '23505') {
-          throw error;
-        }
+      // 3. 이미 조회한 적이 있으면 중복으로 처리
+      if (existingLog) {
+        return {
+          success: true,
+          message: '이미 발견한 이스터에그입니다.',
+          is_first_view: false,
+        };
       }
+
+      // 4. 첫 조회인 경우 access_log 삽입 및 view_count 증가
+      await accessLogRepo.insert({
+        capsuleId,
+        viewerId: user.id,
+      });
+
+      // 5. view_count 증가 (같은 트랜잭션 내에서 원자적으로 처리)
+      capsule.viewCount += 1;
+      await capsuleRepo.save(capsule);
 
       return {
         success: true,
-        message: isFirstView
-          ? '이스터에그를 발견했습니다!'
-          : '이미 발견한 이스터에그입니다.',
-        is_first_view: isFirstView,
+        message: '이스터에그를 발견했습니다!',
+        is_first_view: true,
       };
     });
   }
