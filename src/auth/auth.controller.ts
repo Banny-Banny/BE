@@ -39,13 +39,20 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
   /**
    * 카카오 로그인 시작
-   * GET /auth/kakao
+   * GET /auth/kakao?state=base64EncodedState
+   *
+   * state 파라미터 사용법:
+   * - redirect: 로그인 후 이동할 경로 (예: /room/join?invite_code=ABC123)
+   * - invite_code: 초대 코드 (선택)
+   *
+   * 예시: GET /auth/kakao?state=eyJyZWRpcmVjdCI6Ii9yb29tL2pvaW4_aW52aXRlX2NvZGU9QUJDMTIzIn0
    */
   @Get('kakao')
   @UseGuards(AuthGuard('kakao'))
   @ApiOperation({
     summary: '카카오 로그인',
-    description: '카카오 OAuth 로그인 페이지로 리다이렉트합니다.',
+    description:
+      '카카오 OAuth 로그인 페이지로 리다이렉트합니다. state 파라미터로 로그인 후 복귀 경로를 전달할 수 있습니다.',
   })
   @ApiResponse({
     status: 302,
@@ -53,24 +60,50 @@ export class AuthController {
   })
   kakaoLogin(@Req() request: Request): void {
     this.logger.log('=== Request Headers ===');
-    this.logger.log(`Origin: ${request.headers.origin}`);
-    this.logger.log(`Referer: ${request.headers.referer}`);
-    this.logger.log(`User-Agent: ${request.headers['user-agent']}`);
+    this.logger.log(`Origin: ${request.headers.origin || 'none'}`);
+    this.logger.log(`Referer: ${request.headers.referer || 'none'}`);
+    this.logger.log(`User-Agent: ${request.headers['user-agent'] || 'none'}`);
+    const stateParam = request.query.state;
+    this.logger.log(
+      `State: ${typeof stateParam === 'string' ? stateParam : 'none'}`,
+    );
     this.logger.log('======================');
 
+    // state 파라미터는 Passport가 자동으로 콜백에 전달
     // 카카오 로그인 페이지로 리다이렉트
-    // Passport가 자동으로 처리
   }
 
   /**
    * 카카오 로그인 콜백
    * GET /auth/kakao/callback
+   *
+   * OAuth2 state 파라미터를 통해 로그인 후 복귀 경로를 받습니다.
+   * state는 Base64로 인코딩된 JSON 객체:
+   * { "redirect": "/room/join?invite_code=ABC123", "invite_code": "ABC123" }
    */
   @Get('kakao/callback')
   @UseGuards(AuthGuard('kakao'))
   @ApiExcludeEndpoint() // Swagger에서 숨김 (OAuth 콜백용)
   kakaoCallback(@Req() req: KakaoRequest, @Res() res: Response) {
     const { accessToken, user } = req.user;
+
+    // state 파라미터 파싱 (OAuth2 표준)
+    let stateData: { redirect?: string; invite_code?: string } | null = null;
+    const stateParam = req.query.state;
+
+    if (typeof stateParam === 'string' && stateParam) {
+      try {
+        const decoded = Buffer.from(stateParam, 'base64').toString('utf-8');
+        const parsed: unknown = JSON.parse(decoded);
+        // 타입 가드
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          stateData = parsed as { redirect?: string; invite_code?: string };
+          this.logger.log(`State decoded: ${JSON.stringify(stateData)}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to parse state parameter: ${error}`);
+      }
+    }
 
     // 클라이언트 콜백 URL (웹/앱 딥링크 모두 지원)
     // - AUTH_CALLBACK_REDIRECT_URL: 앱 딥링크 (예: timeegg://auth/callback)
@@ -102,6 +135,14 @@ export class AuthController {
       isNewUser: String(user.isNewUser),
     });
 
+    // state에서 추출한 정보를 쿼리 파라미터로 추가
+    if (stateData?.redirect) {
+      queryParams.set('redirect', stateData.redirect);
+    }
+    if (stateData?.invite_code) {
+      queryParams.set('invite_code', stateData.invite_code);
+    }
+
     let redirectUrl = clientCallback;
     try {
       const url = new URL(clientCallback);
@@ -114,6 +155,7 @@ export class AuthController {
       redirectUrl = `${clientCallback}${separator}${queryParams.toString()}`;
     }
 
+    this.logger.log(`Final redirect URL: ${redirectUrl}`);
     return res.redirect(HttpStatus.FOUND, redirectUrl);
   }
 
