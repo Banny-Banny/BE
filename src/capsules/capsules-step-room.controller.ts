@@ -38,6 +38,7 @@ import {
   JoinStepRoomDto,
   JoinStepRoomResponseDto,
 } from './dto/join-step-room.dto';
+import { GetStepRoomByInviteCodeQueryDto } from './dto/get-step-room-query.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -140,11 +141,6 @@ export class CapsulesStepRoomController {
 
   @Get('step-rooms')
   @ApiOperation({ summary: '초대 코드로 대기실 조회' })
-  @ApiQuery({
-    name: 'invite_code',
-    required: true,
-    description: '초대 코드 (6자리)',
-  })
   @ApiResponse({
     status: 200,
     description: '대기실 정보 조회 성공',
@@ -152,9 +148,9 @@ export class CapsulesStepRoomController {
   })
   @ApiResponse({ status: 404, description: '존재하지 않는 초대 코드' })
   async getStepRoomByInviteCode(
-    @Query('invite_code') inviteCode: string,
+    @Query() query: GetStepRoomByInviteCodeQueryDto,
   ): Promise<StepRoomResponseDto> {
-    return this.stepRoomService.findCapsuleByInviteCode(inviteCode);
+    return this.stepRoomService.findCapsuleByInviteCode(query.invite_code);
   }
 
   @Get('step-rooms/:capsuleId/settings')
