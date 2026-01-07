@@ -34,6 +34,10 @@ import { SubmitCapsuleDto } from './dto/submit-capsule.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { CreateStepRoomDto } from './dto/create-step-room.dto';
 import { CreateStepRoomResponseDto } from './dto/create-step-room-response.dto';
+import {
+  JoinStepRoomDto,
+  JoinStepRoomResponseDto,
+} from './dto/join-step-room.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -196,6 +200,71 @@ export class CapsulesStepRoomController {
       capsuleId,
       user.id,
       inviteCode,
+    );
+  }
+
+  @Post('step-rooms/:capsuleId/join')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '대기실 참여 (슬롯 배정)',
+    description:
+      '초대 코드를 이용하여 대기실에 참여합니다. 빈 슬롯 중 가장 앞 번호에 자동 배정됩니다.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '참여 성공',
+    type: JoinStepRoomResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: '잘못된 초대 코드, 마감시한 경과, 또는 정원 초과',
+    schema: {
+      example: {
+        success: false,
+        error: 'SLOTS_FULL',
+        message: '정원이 초과되었습니다',
+        data: {
+          max_participants: 4,
+          current_participants: 4,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '존재하지 않는 대기실',
+    schema: {
+      example: {
+        success: false,
+        error: 'NOT_FOUND',
+        message: '대기실을 찾을 수 없습니다',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 409,
+    description: '이미 참여 중',
+    schema: {
+      example: {
+        success: false,
+        error: 'ALREADY_JOINED',
+        message: '이미 참여 중입니다',
+        data: {
+          slot_number: 2,
+        },
+      },
+    },
+  })
+  async joinStepRoom(
+    @Param('capsuleId', ParseUUIDPipe) capsuleId: string,
+    @CurrentUser() user: User,
+    @Body() joinDto: JoinStepRoomDto,
+  ): Promise<JoinStepRoomResponseDto> {
+    return await this.stepRoomService.joinStepRoom(
+      capsuleId,
+      user.id,
+      joinDto.invite_code,
     );
   }
 

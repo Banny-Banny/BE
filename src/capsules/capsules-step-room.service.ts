@@ -22,6 +22,7 @@ import { StepRoomSettingsResponseDto } from './dto/step-room-settings.dto';
 import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
+import { JoinStepRoomResponseDto } from './dto/join-step-room.dto';
 import { MediaService } from '../media/media.service';
 import { CapsulesService } from './capsules.service';
 
@@ -640,6 +641,118 @@ export class CapsulesStepRoomService {
         nickname: slot.user?.nickname || null,
       })),
     };
+  }
+
+  /**
+   * 대기실 참여 (슬롯 배정)
+   */
+  async joinStepRoom(
+    capsuleId: string,
+    userId: string,
+    inviteCode: string,
+  ): Promise<JoinStepRoomResponseDto> {
+    return await this.dataSource.transaction(async (manager) => {
+      // 1. 캡슐 조회
+      const capsule = await manager.findOne(Capsule, {
+        where: { id: capsuleId },
+      });
+
+      if (!capsule) {
+        throw new NotFoundException({
+          success: false,
+          error: 'NOT_FOUND',
+          message: '대기실을 찾을 수 없습니다',
+        });
+      }
+
+      // 2. 초대 코드 검증
+      if (
+        !capsule.inviteCode ||
+        capsule.inviteCode.toUpperCase() !== inviteCode.toUpperCase()
+      ) {
+        throw new ForbiddenException({
+          success: false,
+          error: 'INVALID_INVITE_CODE',
+          message: '올바르지 않은 초대 코드입니다',
+        });
+      }
+
+      // 3. 마감시한 확인
+      if (capsule.deadline && new Date() > capsule.deadline) {
+        throw new ForbiddenException({
+          success: false,
+          error: 'DEADLINE_PASSED',
+          message: '참여 마감시한이 지났습니다',
+        });
+      }
+
+      // 4. 대기실 상태 확인
+      if (capsule.roomStatus !== RoomStatus.WAITING) {
+        throw new ForbiddenException({
+          success: false,
+          error: 'ROOM_NOT_WAITING',
+          message: '현재 참여할 수 없는 상태입니다',
+        });
+      }
+
+      // 5. 사용자 정보 조회
+      const user = await manager.findOne(User, { where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException({
+          success: false,
+          error: 'USER_NOT_FOUND',
+          message: '사용자를 찾을 수 없습니다',
+        });
+      }
+
+      // 6. 슬롯 조회
+      const slotRepo = manager.getRepository(CapsuleParticipantSlot);
+      const slots = await slotRepo.find({
+        where: { capsuleId: capsule.id },
+        order: { slotIndex: 'ASC' },
+      });
+
+      // 7. 이미 참여 중인지 확인
+      const existingSlot = slots.find((s) => s.userId === userId);
+      if (existingSlot) {
+        throw new ConflictException({
+          success: false,
+          error: 'ALREADY_JOINED',
+          message: '이미 참여 중입니다',
+          data: {
+            slot_number: existingSlot.slotIndex + 1,
+          },
+        });
+      }
+
+      // 8. 빈 슬롯 찾기
+      const emptySlot = slots.find((s) => s.userId === null);
+      if (!emptySlot) {
+        throw new ForbiddenException({
+          success: false,
+          error: 'SLOTS_FULL',
+          message: '정원이 초과되었습니다',
+          data: {
+            max_participants: capsule.viewLimit,
+            current_participants: slots.filter((s) => s.userId !== null).length,
+          },
+        });
+      }
+
+      // 9. 슬롯 배정
+      emptySlot.userId = userId;
+      emptySlot.assignedAt = new Date();
+      await slotRepo.save(emptySlot);
+
+      // 10. 응답 반환
+      return {
+        success: true,
+        room_id: capsule.id,
+        slot_number: emptySlot.slotIndex + 1,
+        nickname: user.nickname || '익명',
+        joined_at: emptySlot.assignedAt,
+      };
+    });
   }
 
   /**
