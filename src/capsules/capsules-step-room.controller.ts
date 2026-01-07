@@ -64,11 +64,11 @@ interface MulterFile {
  * - POST /capsules/step-rooms/:capsuleId/submit - 최종 제출
  */
 @ApiTags('Capsules - Step Room')
-@Controller('capsules')
+@Controller('capsules/step-rooms')
 export class CapsulesStepRoomController {
   constructor(private readonly stepRoomService: CapsulesStepRoomService) {}
 
-  @Post('step-rooms/create')
+  @Post('create')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
@@ -139,7 +139,7 @@ export class CapsulesStepRoomController {
     };
   }
 
-  @Get('step-rooms')
+  @Get()
   @ApiOperation({ summary: '초대 코드로 대기실 조회' })
   @ApiQuery({
     name: 'invite_code',
@@ -166,7 +166,7 @@ export class CapsulesStepRoomController {
     return this.stepRoomService.findCapsuleByInviteCode(inviteCode);
   }
 
-  @Get('step-rooms/:capsuleId/settings')
+  @Get(':capsuleId/settings')
   @ApiOperation({
     summary: '대기실 설정값 조회',
     description:
@@ -184,7 +184,7 @@ export class CapsulesStepRoomController {
     return this.stepRoomService.getStepRoomSettings(capsuleId);
   }
 
-  @Get('step-rooms/:capsuleId')
+  @Get(':capsuleId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: '대기실 상세 조회 (참여자 전용)' })
@@ -212,7 +212,7 @@ export class CapsulesStepRoomController {
     );
   }
 
-  @Post('step-rooms/:capsuleId/join')
+  @Post(':capsuleId/join')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
@@ -277,7 +277,7 @@ export class CapsulesStepRoomController {
     );
   }
 
-  @Post('step-rooms/:capsuleId/my-content')
+  @Post(':capsuleId/my-content')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @UseInterceptors(
@@ -365,7 +365,7 @@ export class CapsulesStepRoomController {
     );
   }
 
-  @Post('step-rooms/:capsuleId/submit')
+  @Post(':capsuleId/submit')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
