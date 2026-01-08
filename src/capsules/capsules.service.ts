@@ -619,6 +619,166 @@ export class CapsulesService {
     };
   }
 
+  /**
+   * 알 상세 정보 조회 (신규 형식)
+   */
+  async getEggDetail(user: User, eggId: string, query: GetCapsuleQueryDto) {
+    const capsule = await this.capsuleRepository.findOne({
+      where: { id: eggId },
+      relations: { product: true, user: true },
+      withDeleted: true, // soft delete된 캡슐도 조회 가능 (본인이 심은 소멸된 알)
+    });
+
+    if (!capsule) {
+      throw new NotFoundException('CAPSULE_NOT_FOUND');
+    }
+
+    // 본인 캡슐 여부 확인
+    const isMine = capsule.userId === user.id;
+
+    // 본인 캡슐이 아닌 경우 소멸된 캡슐은 조회 불가
+    if (!isMine && capsule.deletedAt) {
+      throw new NotFoundException('CAPSULE_NOT_FOUND');
+    }
+
+    // 본인 캡슐이 아닌 경우에만 친구 여부 확인
+    if (!isMine) {
+      const friend = await this.friendshipRepository.findOne({
+        where: [
+          {
+            userId: user.id,
+            friendId: capsule.userId,
+            status: FriendStatus.CONNECTED,
+          },
+          {
+            userId: capsule.userId,
+            friendId: user.id,
+            status: FriendStatus.CONNECTED,
+          },
+        ],
+      });
+
+      if (!friend) {
+        throw new ForbiddenException('FORBIDDEN_FRIENDSHIP');
+      }
+    }
+
+    // 본인 캡슐이 아닌 경우에만 위치 검증
+    if (!isMine) {
+      const { lat, lng } = query;
+      const capsuleLat =
+        capsule.latitude !== null ? Number(capsule.latitude) : null;
+      const capsuleLng =
+        capsule.longitude !== null ? Number(capsule.longitude) : null;
+
+      const within = this.isWithinRadius(capsuleLat, capsuleLng, lat, lng);
+      if (!within) {
+        throw new ForbiddenException('FORBIDDEN_LOCATION');
+      }
+    }
+
+    // 미디어 정보 조회
+    const mediaEntities =
+      capsule.mediaItemIds && capsule.mediaItemIds.length > 0
+        ? await this.mediaRepository.find({
+            where: { id: In(capsule.mediaItemIds) },
+          })
+        : [];
+
+    const mediaMap = new Map(mediaEntities.map((m) => [m.id, m]));
+
+    // 미디어 타입별로 분리
+    let imageMediaId: string | null = null;
+    let imageObjectKey: string | null = null;
+    let audioMediaId: string | null = null;
+    let audioObjectKey: string | null = null;
+    let videoMediaId: string | null = null;
+    let videoObjectKey: string | null = null;
+
+    if (capsule.mediaItemIds && capsule.mediaItemIds.length > 0) {
+      for (let i = 0; i < capsule.mediaItemIds.length; i++) {
+        const mediaId = capsule.mediaItemIds[i];
+        const media = mediaMap.get(mediaId);
+        const mediaType = media?.type ?? capsule.mediaTypes?.[i];
+
+        if (mediaType === MediaType.IMAGE && !imageMediaId) {
+          imageMediaId = mediaId;
+          imageObjectKey = media?.objectKey ?? null;
+        } else if (mediaType === MediaType.AUDIO && !audioMediaId) {
+          audioMediaId = mediaId;
+          audioObjectKey = media?.objectKey ?? null;
+        } else if (mediaType === MediaType.VIDEO && !videoMediaId) {
+          videoMediaId = mediaId;
+          videoObjectKey = media?.objectKey ?? null;
+        }
+      }
+    }
+
+    // 조회 로그 기록 (본인 캡슐이 아닌 경우만)
+    if (!isMine) {
+      await this.logCapsuleAccess(capsule.id, user.id);
+    }
+
+    // 조회자 목록 조회 (작성자 본인 제외)
+    const accessLogs = await this.accessLogRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: { viewer: true },
+      order: { viewedAt: 'ASC' },
+    });
+
+    const viewers = accessLogs
+      .filter((log) => log.viewerId !== capsule.userId)
+      .map((log) => ({
+        id: log.viewer.id,
+        nickname: log.viewer.nickname,
+        profileImg: log.viewer.profileImg,
+        viewedAt: log.viewedAt,
+      }));
+
+    // 작성자 정보
+    const author = {
+      id: capsule.user.id,
+      nickname: capsule.user.nickname,
+      profileImg: capsule.user.profileImg,
+    };
+
+    // type 결정: 본인이 발견한 알인지 확인
+    let type: 'FOUND' | 'PLANTED' = 'PLANTED';
+    let foundAt: Date | null = null;
+
+    if (!isMine) {
+      // 다른 사람의 알이므로 FOUND
+      type = 'FOUND';
+      const myAccessLog = accessLogs.find((log) => log.viewerId === user.id);
+      foundAt = myAccessLog ? myAccessLog.viewedAt : null;
+    }
+
+    return {
+      eggId: capsule.id,
+      type,
+      isMine,
+      title: capsule.title,
+      message: capsule.content,
+      imageMediaId,
+      imageObjectKey,
+      audioMediaId,
+      audioObjectKey,
+      videoMediaId,
+      videoObjectKey,
+      location: {
+        address: this.formatLocation(capsule.latitude, capsule.longitude),
+        latitude: capsule.latitude ? Number(capsule.latitude) : null,
+        longitude: capsule.longitude ? Number(capsule.longitude) : null,
+      },
+      author,
+      createdAt: capsule.createdAt,
+      foundAt,
+      expiredAt: capsule.deletedAt,
+      discoveredCount: viewers.length,
+      viewers,
+    };
+  }
+
   async findNearby(user: User, query: GetCapsulesListQueryDto) {
     // user 검증
     if (!user || !user.id) {
@@ -1324,5 +1484,201 @@ export class CapsulesService {
       view_limit: capsule.viewLimit,
       viewers,
     };
+  }
+
+  // ==========================================
+  // 이스터에그 목록 조회 (내가 심은 알 / 발견한 알)
+  // ==========================================
+
+  /**
+   * 내가 심은 알 / 발견한 알 목록 조회
+   */
+  async getMyEggs(user: User, type: string, sort?: string) {
+    if (type === 'PLANTED') {
+      return this.getMyPlantedEggs(user);
+    } else if (type === 'FOUND') {
+      return this.getMyFoundEggs(user, sort);
+    }
+    throw new BadRequestException('INVALID_TYPE');
+  }
+
+  /**
+   * 내가 심은 알 목록 조회
+   */
+  private async getMyPlantedEggs(user: User) {
+    // 사용자가 작성한 모든 캡슐 조회 (soft delete 포함)
+    const capsules = await this.capsuleRepository
+      .createQueryBuilder('capsule')
+      .where('capsule.user_id = :userId', { userId: user.id })
+      .withDeleted() // soft delete된 것도 포함
+      .orderBy('capsule.created_at', 'DESC')
+      .getMany();
+
+    // 미디어 정보 조회
+    const allMediaIds = capsules
+      .filter((c) => c.mediaItemIds && c.mediaItemIds.length > 0)
+      .flatMap((c) => c.mediaItemIds!);
+
+    const uniqueMediaIds = Array.from(new Set(allMediaIds));
+    const mediaEntities =
+      uniqueMediaIds.length > 0
+        ? await this.mediaRepository.find({
+            where: { id: In(uniqueMediaIds) },
+          })
+        : [];
+
+    const mediaMap = new Map(mediaEntities.map((m) => [m.id, m]));
+
+    // 캡슐을 active와 expired로 분리
+    const activeEggs: any[] = [];
+    const expiredEggs: any[] = [];
+
+    for (const capsule of capsules) {
+      const mediaTypes = this.getMediaTypesFromCapsule(capsule, mediaMap);
+
+      const eggItem = {
+        eggId: capsule.id,
+        title: capsule.title,
+        content: capsule.content,
+        viewCount: capsule.viewCount,
+        location: this.formatLocation(capsule.latitude, capsule.longitude),
+        latitude: capsule.latitude ? Number(capsule.latitude) : null,
+        longitude: capsule.longitude ? Number(capsule.longitude) : null,
+        hasImage: mediaTypes.includes(MediaType.IMAGE),
+        hasAudio:
+          mediaTypes.includes(MediaType.AUDIO) ||
+          mediaTypes.includes(MediaType.VIDEO),
+        createdDate: capsule.createdAt,
+        status: capsule.deletedAt ? 'EXPIRED' : 'ACTIVE',
+      };
+
+      if (capsule.deletedAt) {
+        expiredEggs.push(eggItem);
+      } else {
+        activeEggs.push(eggItem);
+      }
+    }
+
+    return {
+      summary: {
+        totalPlantedCount: capsules.length,
+        activeCount: activeEggs.length,
+      },
+      data: {
+        activeEggs,
+        expiredEggs,
+      },
+    };
+  }
+
+  /**
+   * 내가 발견한 알 목록 조회
+   */
+  private async getMyFoundEggs(user: User, sort?: string) {
+    // 사용자가 발견한 캡슐 조회 (access log 기준)
+    const accessLogs = await this.accessLogRepository
+      .createQueryBuilder('log')
+      .leftJoinAndSelect('log.capsule', 'capsule')
+      .where('log.viewer_id = :viewerId', { viewerId: user.id })
+      .andWhere('capsule.deleted_at IS NULL') // 소멸된 캡슐은 제외
+      .orderBy(
+        'log.viewed_at',
+        sort === 'OLDEST' ? 'ASC' : 'DESC', // 기본값은 LATEST (DESC)
+      )
+      .getMany();
+
+    // 미디어 정보 조회
+    const allMediaIds = accessLogs.flatMap((log) => {
+      if (log.capsule?.mediaItemIds && log.capsule.mediaItemIds.length > 0) {
+        return log.capsule.mediaItemIds;
+      }
+      return [];
+    });
+
+    const uniqueMediaIds = Array.from(new Set(allMediaIds));
+    const mediaEntities =
+      uniqueMediaIds.length > 0
+        ? await this.mediaRepository.find({
+            where: { id: In(uniqueMediaIds) },
+          })
+        : [];
+
+    const mediaMap = new Map(mediaEntities.map((m) => [m.id, m]));
+
+    const data = accessLogs
+      .filter(
+        (
+          log,
+        ): log is typeof log & { capsule: NonNullable<typeof log.capsule> } =>
+          !!log.capsule,
+      )
+      .map((log) => {
+        const capsule = log.capsule;
+        const mediaTypes = this.getMediaTypesFromCapsule(capsule, mediaMap);
+
+        return {
+          eggId: capsule.id,
+          title: capsule.title,
+          content: capsule.content,
+          viewCount: capsule.viewCount,
+          location: this.formatLocation(capsule.latitude, capsule.longitude),
+          latitude: capsule.latitude ? Number(capsule.latitude) : null,
+          longitude: capsule.longitude ? Number(capsule.longitude) : null,
+          hasImage: mediaTypes.includes(MediaType.IMAGE),
+          hasAudio:
+            mediaTypes.includes(MediaType.AUDIO) ||
+            mediaTypes.includes(MediaType.VIDEO),
+          foundDate: log.viewedAt, // 발견한 날짜
+          createdDate: capsule.createdAt, // 심어진 날짜
+        };
+      });
+
+    return {
+      summary: {
+        totalFoundCount: data.length,
+      },
+      data,
+    };
+  }
+
+  /**
+   * 캡슐의 미디어 타입 목록 조회 (헬퍼 메서드)
+   */
+  private getMediaTypesFromCapsule(
+    capsule: Capsule,
+    mediaMap: Map<string, Media>,
+  ): MediaType[] {
+    if (!capsule.mediaItemIds || capsule.mediaItemIds.length === 0) {
+      return [];
+    }
+
+    return capsule.mediaItemIds
+      .map((id, idx) => {
+        const media = mediaMap.get(id);
+        if (media) {
+          return media.type;
+        }
+        // fallback: capsule.mediaTypes 사용
+        if (capsule.mediaTypes && idx < capsule.mediaTypes.length) {
+          return capsule.mediaTypes[idx];
+        }
+        return null;
+      })
+      .filter((type): type is MediaType => type !== null);
+  }
+
+  /**
+   * 위도/경도를 문자열 형식으로 변환 (헬퍼 메서드)
+   */
+  private formatLocation(
+    latitude: number | null,
+    longitude: number | null,
+  ): string | null {
+    if (!latitude || !longitude) {
+      return null;
+    }
+    // 여기서는 간단히 좌표를 문자열로 반환
+    // 실제로는 역지오코딩 API를 사용하거나, 프론트에서 처리하는 것이 좋습니다
+    return `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}`;
   }
 }

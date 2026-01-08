@@ -300,10 +300,11 @@ export class AuthService {
       throw new UnauthorizedException('사용자를 찾을 수 없습니다.');
     }
 
-    // 캡슐 개수 (삭제되지 않은 모든 캡슐)
+    // 타임캡슐 개수 (viewLimit = 0인 캡슐)
     const capsuleCount = await this.capsuleRepository
       .createQueryBuilder('capsule')
       .where('capsule.user_id = :userId', { userId })
+      .andWhere('(capsule.view_limit = 0 OR capsule.view_limit IS NULL)')
       .andWhere('capsule.deleted_at IS NULL')
       .getCount();
 

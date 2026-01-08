@@ -30,6 +30,12 @@ import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 import { MediaType } from '../common/enums';
 import { GetViewersResponseDto } from './dto/get-viewers-response.dto';
 import { MulterFile } from '../media/types/multer-file.interface';
+import { GetMyEggsQueryDto } from './dto/get-my-eggs-query.dto';
+import {
+  GetMyPlantedEggsResponseDto,
+  GetMyFoundEggsResponseDto,
+} from './dto/get-my-eggs-response.dto';
+import { GetEggDetailResponseDto } from './dto/get-egg-detail-response.dto';
 
 type MediaItemResponse = {
   media_id: string | null;
@@ -222,6 +228,167 @@ export class CapsulesController {
   async resetSlots(@CurrentUser() user: User) {
     const eggSlots = await this.capsulesService.resetEggSlots(user);
     return { egg_slots: eggSlots };
+  }
+
+  @Get('my-eggs')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '내 이스터에그 목록 조회 (심은 알 / 발견한 알)',
+    description:
+      'type 파라미터로 심은 알(PLANTED) 또는 발견한 알(FOUND)을 조회합니다. 발견한 알은 sort 파라미터로 정렬 가능합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '목록 조회 성공 (심은 알)',
+    type: GetMyPlantedEggsResponseDto,
+    schema: {
+      example: {
+        summary: {
+          totalPlantedCount: 5,
+          activeCount: 3,
+        },
+        data: {
+          activeEggs: [
+            {
+              eggId: '550e8400-e29b-41d4-a716-446655440000',
+              title: '응원의 메시지',
+              content: '너는 할 수 있어! 항상 응원할게 파이팅!!',
+              viewCount: 1,
+              location: '37.566535, 126.977969',
+              latitude: 37.566535,
+              longitude: 126.977969,
+              hasImage: true,
+              hasAudio: true,
+              createdDate: '2024-12-01T00:00:00.000Z',
+              status: 'ACTIVE',
+            },
+          ],
+          expiredEggs: [
+            {
+              eggId: '550e8400-e29b-41d4-a716-446655440001',
+              title: '추억의 순간',
+              content: '이 노래 들으면서 이 사진 보면 그날 생각날 거야!',
+              viewCount: 3,
+              location: '37.395126, 126.640755',
+              latitude: 37.395126,
+              longitude: 126.640755,
+              hasImage: true,
+              hasAudio: true,
+              createdDate: '2024-12-01T00:00:00.000Z',
+              status: 'EXPIRED',
+            },
+          ],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: '목록 조회 성공 (발견한 알)',
+    type: GetMyFoundEggsResponseDto,
+    schema: {
+      example: {
+        summary: {
+          totalFoundCount: 5,
+        },
+        data: [
+          {
+            eggId: '550e8400-e29b-41d4-a716-446655440002',
+            title: '어느 날의 선물',
+            content: '길 가다 발견한 작은 행운...',
+            viewCount: 10,
+            location: '35.179554, 129.075638',
+            latitude: 35.179554,
+            longitude: 129.075638,
+            hasImage: false,
+            hasAudio: true,
+            foundDate: '2025-01-05T14:30:00.000Z',
+            createdDate: '2024-12-25T04:23:00.000Z',
+          },
+        ],
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: '잘못된 type 파라미터' })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiQuery({
+    name: 'type',
+    required: true,
+    enum: ['PLANTED', 'FOUND'],
+    description: 'PLANTED: 심은 알, FOUND: 발견한 알',
+  })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    enum: ['LATEST', 'OLDEST'],
+    description: '정렬 순서 (type=FOUND일 때만 사용)',
+  })
+  async getMyEggs(
+    @CurrentUser() user: User,
+    @Query() query: GetMyEggsQueryDto,
+  ): Promise<GetMyPlantedEggsResponseDto | GetMyFoundEggsResponseDto> {
+    return this.capsulesService.getMyEggs(user, query.type, query.sort);
+  }
+
+  @Get(':id/detail')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '알 상세 정보 조회 (신규 형식)',
+    description:
+      '특정 알의 ID를 기반으로 상세 콘텐츠(메시지, 사진, 음악, 위치 등)를 조회합니다. 본인이 심은 알 또는 발견한 알을 구분하여 반환합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    type: GetEggDetailResponseDto,
+    schema: {
+      example: {
+        eggId: '550e8400-e29b-41d4-a716-446655440000',
+        type: 'FOUND',
+        isMine: false,
+        title: '좋은 하루',
+        message: '오늘도 웃으면서 보내! 넌 최고야',
+        imageMediaId: '550e8400-e29b-41d4-a716-446655440001',
+        imageObjectKey: 'media/user-id/IMAGE/uuid.jpg',
+        audioMediaId: '550e8400-e29b-41d4-a716-446655440002',
+        audioObjectKey: 'media/user-id/AUDIO/uuid.mp3',
+        videoMediaId: null,
+        videoObjectKey: null,
+        location: {
+          address: '37.566535, 126.977969',
+          latitude: 37.566535,
+          longitude: 126.977969,
+        },
+        author: {
+          id: '550e8400-e29b-41d4-a716-446655440003',
+          nickname: '김철수',
+          profileImg: 'https://example.com/profile.jpg',
+        },
+        createdAt: '2024-11-10T00:00:00.000Z',
+        foundAt: '2024-12-01T14:30:00.000Z',
+        expiredAt: null,
+        discoveredCount: 3,
+        viewers: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440004',
+            nickname: '이영희',
+            profileImg: 'https://example.com/profile2.jpg',
+            viewedAt: '2024-12-01T14:30:00.000Z',
+          },
+        ],
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: '잘못된 id 또는 좌표' })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  @ApiResponse({ status: 403, description: '위치 미도달 또는 친구 아님' })
+  @ApiResponse({ status: 404, description: '캡슐 미존재/삭제' })
+  async getEggDetail(
+    @CurrentUser() user: User,
+    @Param() params: GetCapsuleParamDto,
+    @Query() query: GetCapsuleQueryDto,
+  ): Promise<GetEggDetailResponseDto> {
+    return this.capsulesService.getEggDetail(user, params.id, query);
   }
 
   @Get(':id')
