@@ -57,7 +57,7 @@ interface MulterFile {
  * 모든 엔드포인트는 'step-rooms' 접두사를 가집니다.
  *
  * 엔드포인트:
- * - GET /capsules/step-rooms - 초대 코드로 대기실 조회
+ * - GET /capsules/step-rooms/by-code - 초대 코드로 대기실 조회
  * - GET /capsules/step-rooms/:capsuleId/settings - 대기실 설정 조회
  * - GET /capsules/step-rooms/:capsuleId - 대기실 상세 조회
  * - POST /capsules/step-rooms/:capsuleId/my-content - 콘텐츠 저장
@@ -139,7 +139,7 @@ export class CapsulesStepRoomController {
     };
   }
 
-  @Get()
+  @Get('by-code')
   @ApiOperation({ summary: '초대 코드로 대기실 조회' })
   @ApiQuery({
     name: 'invite_code',
