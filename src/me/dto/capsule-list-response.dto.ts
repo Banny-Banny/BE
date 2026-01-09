@@ -48,6 +48,26 @@ export class CapsuleListItemDto {
   })
   createdAt: Date;
 
+  @ApiProperty({
+    description: '제출 마감 시간',
+    example: '2025-01-10T15:30:00.000Z',
+    nullable: true,
+  })
+  deadline: Date | null;
+
+  @ApiProperty({
+    description: '작성 완료한 참여자 수',
+    example: 2,
+  })
+  completedCount: number;
+
+  @ApiProperty({
+    description: '진행률 0-100 (status === "WAITING"일 때만 제공)',
+    example: 66.67,
+    nullable: true,
+  })
+  progressPercentage?: number | null;
+
   constructor(partial: Partial<CapsuleListItemDto>) {
     Object.assign(this, partial);
   }
@@ -72,4 +92,3 @@ export class PaginatedCapsuleResponseDto extends PaginatedResponseDto<CapsuleLis
     super(items, total, limit, offset);
   }
 }
-

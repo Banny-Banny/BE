@@ -238,6 +238,8 @@ export class MeService {
     // 4. 각 캡슐의 참여자 수 및 내 작성 상태 조회
     const capsuleItems = await Promise.all(
       capsules.map(async (capsule) => {
+        const status = capsule.roomStatus || 'WAITING';
+
         // 참여자 수 계산
         const participantCount = await this.slotRepository.count({
           where: { capsuleId: capsule.id },
@@ -248,14 +250,34 @@ export class MeService {
           where: { capsuleId: capsule.id, userId },
         });
 
+        // deadline은 capsule 엔티티에 저장되어 있음
+        const deadline: Date | null = capsule.deadline || null;
+
+        // 작성 완료한 참여자 수 (status === 'COMPLETED'인 슬롯)
+        const completedCount = await this.slotRepository.count({
+          where: { capsuleId: capsule.id, status: 'COMPLETED' },
+        });
+
+        // 진행률 계산 (WAITING 상태일 때만)
+        let progressPercentage: number | null = null;
+        if (status === 'WAITING') {
+          progressPercentage =
+            participantCount > 0
+              ? Math.round((completedCount / participantCount) * 100)
+              : 0;
+        }
+
         return new CapsuleListItemDto({
           id: capsule.id,
           title: capsule.title,
-          status: capsule.roomStatus || 'WAITING',
+          status,
           openDate: capsule.openAt,
           participantCount,
           myWriteStatus: !!myEntry,
           createdAt: capsule.createdAt,
+          deadline,
+          completedCount,
+          progressPercentage,
         });
       }),
     );
