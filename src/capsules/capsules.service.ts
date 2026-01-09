@@ -766,7 +766,7 @@ export class CapsulesService {
       videoMediaId,
       videoObjectKey,
       location: {
-        address: this.formatLocation(capsule.latitude, capsule.longitude),
+        address: null,
         latitude: capsule.latitude ? Number(capsule.latitude) : null,
         longitude: capsule.longitude ? Number(capsule.longitude) : null,
       },
@@ -1506,10 +1506,14 @@ export class CapsulesService {
    * 내가 심은 알 목록 조회
    */
   private async getMyPlantedEggs(user: User) {
-    // 사용자가 작성한 모든 캡슐 조회 (soft delete 포함)
+    // 사용자가 작성한 이스터에그만 조회 (soft delete 포함)
     const capsules = await this.capsuleRepository
       .createQueryBuilder('capsule')
+      .leftJoinAndSelect('capsule.product', 'product')
       .where('capsule.user_id = :userId', { userId: user.id })
+      .andWhere('product.product_type = :productType', {
+        productType: 'EASTER_EGG',
+      })
       .withDeleted() // soft delete된 것도 포함
       .orderBy('capsule.created_at', 'DESC')
       .getMany();
@@ -1541,13 +1545,11 @@ export class CapsulesService {
         title: capsule.title,
         content: capsule.content,
         viewCount: capsule.viewCount,
-        location: this.formatLocation(capsule.latitude, capsule.longitude),
         latitude: capsule.latitude ? Number(capsule.latitude) : null,
         longitude: capsule.longitude ? Number(capsule.longitude) : null,
         hasImage: mediaTypes.includes(MediaType.IMAGE),
-        hasAudio:
-          mediaTypes.includes(MediaType.AUDIO) ||
-          mediaTypes.includes(MediaType.VIDEO),
+        hasAudio: mediaTypes.includes(MediaType.AUDIO),
+        hasVideo: mediaTypes.includes(MediaType.VIDEO),
         createdDate: capsule.createdAt,
         status: capsule.deletedAt ? 'EXPIRED' : 'ACTIVE',
       };
@@ -1575,12 +1577,16 @@ export class CapsulesService {
    * 내가 발견한 알 목록 조회
    */
   private async getMyFoundEggs(user: User, sort?: string) {
-    // 사용자가 발견한 캡슐 조회 (access log 기준)
+    // 사용자가 발견한 이스터에그만 조회 (access log 기준)
     const accessLogs = await this.accessLogRepository
       .createQueryBuilder('log')
       .leftJoinAndSelect('log.capsule', 'capsule')
+      .leftJoinAndSelect('capsule.product', 'product')
       .where('log.viewer_id = :viewerId', { viewerId: user.id })
       .andWhere('capsule.deleted_at IS NULL') // 소멸된 캡슐은 제외
+      .andWhere('product.product_type = :productType', {
+        productType: 'EASTER_EGG',
+      })
       .orderBy(
         'log.viewed_at',
         sort === 'OLDEST' ? 'ASC' : 'DESC', // 기본값은 LATEST (DESC)
@@ -1621,13 +1627,11 @@ export class CapsulesService {
           title: capsule.title,
           content: capsule.content,
           viewCount: capsule.viewCount,
-          location: this.formatLocation(capsule.latitude, capsule.longitude),
           latitude: capsule.latitude ? Number(capsule.latitude) : null,
           longitude: capsule.longitude ? Number(capsule.longitude) : null,
           hasImage: mediaTypes.includes(MediaType.IMAGE),
-          hasAudio:
-            mediaTypes.includes(MediaType.AUDIO) ||
-            mediaTypes.includes(MediaType.VIDEO),
+          hasAudio: mediaTypes.includes(MediaType.AUDIO),
+          hasVideo: mediaTypes.includes(MediaType.VIDEO),
           foundDate: log.viewedAt, // 발견한 날짜
           createdDate: capsule.createdAt, // 심어진 날짜
         };
@@ -1665,20 +1669,5 @@ export class CapsulesService {
         return null;
       })
       .filter((type): type is MediaType => type !== null);
-  }
-
-  /**
-   * 위도/경도를 문자열 형식으로 변환 (헬퍼 메서드)
-   */
-  private formatLocation(
-    latitude: number | null,
-    longitude: number | null,
-  ): string | null {
-    if (!latitude || !longitude) {
-      return null;
-    }
-    // 여기서는 간단히 좌표를 문자열로 반환
-    // 실제로는 역지오코딩 API를 사용하거나, 프론트에서 처리하는 것이 좋습니다
-    return `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}`;
   }
 }

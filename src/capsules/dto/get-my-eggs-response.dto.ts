@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { MediaType } from '../../common/enums';
 
 export class MyEggItemDto {
   @ApiProperty({
@@ -28,13 +27,6 @@ export class MyEggItemDto {
   viewCount: number;
 
   @ApiProperty({
-    description: '위치 (주소 문자열 또는 좌표)',
-    example: '서울 명동',
-    nullable: true,
-  })
-  location: string | null;
-
-  @ApiProperty({
     description: '위도',
     example: 37.5665,
     nullable: true,
@@ -59,6 +51,12 @@ export class MyEggItemDto {
     example: true,
   })
   hasAudio: boolean;
+
+  @ApiProperty({
+    description: '비디오 포함 여부',
+    example: false,
+  })
+  hasVideo: boolean;
 
   @ApiProperty({
     description: '이스터에그 생성일 (심은 날짜)',
@@ -113,4 +111,3 @@ export class GetMyFoundEggsResponseDto {
   })
   data: MyEggItemDto[];
 }
-
