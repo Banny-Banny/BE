@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -10,10 +11,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { promisify } from 'util';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
 import { User, Capsule, Friendship } from '../entities';
 import { LocalLoginRequestDto } from './dto/local-login.request.dto';
 import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
 import { FriendStatus } from '../common/enums';
+import { KakaoFriendsSyncRequestDto } from './dto/kakao-friends-sync.request.dto';
 
 export interface KakaoUserInfo {
   kakaoId: string;
@@ -45,6 +50,8 @@ const scryptAsync = promisify(_scrypt);
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -53,6 +60,8 @@ export class AuthService {
     @InjectRepository(Friendship)
     private readonly friendshipRepository: Repository<Friendship>,
     private readonly jwtService: JwtService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -340,4 +349,240 @@ export class AuthService {
       },
     };
   }
+
+  /**
+   * 카카오 친구 동기화
+   * 1. 인가 코드로 액세스 토큰 발급
+   * 2. 카카오 친구 목록 조회
+   * 3. 우리 서비스 가입자만 필터링
+   * 4. Friendship 테이블에 저장
+   */
+  async syncKakaoFriends(
+    user: User,
+    dto: KakaoFriendsSyncRequestDto,
+  ): Promise<{ isSynced: boolean; syncedCount: number; lastSyncedAt: Date }> {
+    this.logger.log(
+      `[카카오 친구 동기화 시작] userId: ${user.id}, code: ${dto.code.substring(0, 10)}...`,
+    );
+
+    // 1. 인가 코드로 액세스 토큰 발급
+    const tokenData = await this.getKakaoAccessToken(dto.code, dto.redirectUri);
+
+    if (!tokenData.access_token) {
+      throw new BadRequestException('카카오 액세스 토큰 발급 실패');
+    }
+
+    // 2. 카카오 친구 목록 조회
+    const kakaoFriends = await this.getKakaoFriends(tokenData.access_token);
+
+    this.logger.log(`[카카오 친구 목록 조회 완료] 총 ${kakaoFriends.length}명`);
+
+    // 3. 카카오 친구 중 우리 서비스에 가입된 유저 찾기
+    const kakaoIds = kakaoFriends.map((friend) => String(friend.id));
+    const registeredUsers = await this.userRepository
+      .createQueryBuilder('user')
+      .where('user.kakao_id IN (:...kakaoIds)', { kakaoIds })
+      .andWhere('user.is_active = :isActive', { isActive: true })
+      .getMany();
+
+    this.logger.log(
+      `[서비스 가입자 필터링] ${registeredUsers.length}명이 우리 서비스 사용 중`,
+    );
+
+    // 4. Friendship 테이블에 저장 (user_id < friend_id 정책)
+    let syncedCount = 0;
+    for (const friendUser of registeredUsers) {
+      // 본인은 제외
+      if (friendUser.id === user.id) {
+        continue;
+      }
+
+      // user_id < friend_id 순서로 정렬
+      const [smallerId, largerId] =
+        user.id < friendUser.id
+          ? [user.id, friendUser.id]
+          : [friendUser.id, user.id];
+
+      // 이미 존재하는 친구 관계 확인
+      const existingFriendship = await this.friendshipRepository.findOne({
+        where: {
+          userId: smallerId,
+          friendId: largerId,
+        },
+      });
+
+      if (!existingFriendship) {
+        // 새로운 친구 관계 생성
+        const friendship = this.friendshipRepository.create({
+          userId: smallerId,
+          friendId: largerId,
+          status: FriendStatus.CONNECTED,
+        });
+        await this.friendshipRepository.save(friendship);
+        syncedCount++;
+        this.logger.log(
+          `[친구 추가] ${smallerId} <-> ${largerId} (${friendUser.nickname})`,
+        );
+      } else if (existingFriendship.status !== FriendStatus.CONNECTED) {
+        // 기존 관계가 PENDING 또는 BLOCKED인 경우 CONNECTED로 업데이트
+        existingFriendship.status = FriendStatus.CONNECTED;
+        await this.friendshipRepository.save(existingFriendship);
+        syncedCount++;
+        this.logger.log(
+          `[친구 상태 업데이트] ${smallerId} <-> ${largerId} -> CONNECTED`,
+        );
+      }
+    }
+
+    // 5. User에 토큰 및 동기화 시간 저장
+    user.kakaoAccessToken = tokenData.access_token;
+    user.kakaoRefreshToken = tokenData.refresh_token || null;
+    user.lastKakaoFriendsSyncAt = new Date();
+    await this.userRepository.save(user);
+
+    this.logger.log(
+      `[카카오 친구 동기화 완료] 총 ${syncedCount}명의 친구가 추가/업데이트됨`,
+    );
+
+    return {
+      isSynced: true,
+      syncedCount,
+      lastSyncedAt: user.lastKakaoFriendsSyncAt,
+    };
+  }
+
+  /**
+   * 카카오 인가 코드로 액세스 토큰 발급
+   */
+  /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
+  private async getKakaoAccessToken(
+    code: string,
+    redirectUri: string,
+  ): Promise<{
+    access_token: string;
+    token_type: string;
+    refresh_token?: string;
+    expires_in: number;
+    scope?: string;
+  }> {
+    const clientId = this.configService.get<string>('KAKAO_CLIENT_ID');
+    const clientSecret = this.configService.get<string>('KAKAO_CLIENT_SECRET');
+
+    if (!clientId) {
+      throw new Error('KAKAO_CLIENT_ID 환경 변수가 설정되지 않았습니다.');
+    }
+
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code,
+    });
+
+    if (clientSecret) {
+      params.append('client_secret', clientSecret);
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post<{
+          access_token: string;
+          token_type: string;
+          refresh_token?: string;
+          expires_in: number;
+          scope?: string;
+        }>('https://kauth.kakao.com/oauth/token', params.toString(), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        }),
+      );
+
+      return response.data;
+    } catch (error: unknown) {
+      this.logger.error('[카카오 토큰 발급 실패]', error);
+      if (
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response &&
+        typeof error.response === 'object' &&
+        'data' in error.response
+      ) {
+        const errorData = error.response.data as {
+          error?: string;
+          error_description?: string;
+        };
+        if (errorData.error === 'invalid_grant') {
+          throw new BadRequestException(
+            '유효하지 않거나 이미 사용된 카카오 인가 코드입니다.',
+          );
+        }
+      }
+      throw new BadRequestException('카카오 액세스 토큰 발급에 실패했습니다.');
+    }
+  }
+  /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
+
+  /**
+   * 카카오 친구 목록 조회
+   */
+  /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
+  private async getKakaoFriends(
+    accessToken: string,
+  ): Promise<Array<{ id: number; uuid: string; profile_nickname?: string }>> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get<{
+          elements: Array<{
+            id: number;
+            uuid: string;
+            profile_nickname?: string;
+          }>;
+          total_count: number;
+        }>('https://kapi.kakao.com/v1/api/talk/friends', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }),
+      );
+
+      const elements = response.data.elements || [];
+
+      // friends 권한이 없는 경우 체크
+      if (response.data.total_count === 0 && elements.length === 0) {
+        // 권한이 없을 수도 있지만, 친구가 0명일 수도 있음
+        // 에러를 던지는 대신 빈 배열 반환
+        this.logger.warn(
+          '[카카오 친구 목록 조회] 친구가 없거나 friends 권한이 부족할 수 있습니다.',
+        );
+      }
+
+      return elements;
+    } catch (error: unknown) {
+      this.logger.error('[카카오 친구 목록 조회 실패]', error);
+
+      // 권한 부족 에러 체크
+      if (
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response &&
+        typeof error.response === 'object'
+      ) {
+        const response = error.response as {
+          status?: number;
+          data?: { code?: number; msg?: string };
+        };
+        if (response.status === 403 || response.data?.code === -402) {
+          throw new ForbiddenException(
+            '카카오 친구 목록 접근 권한이 없습니다. 동의창에서 친구 목록 항목을 체크해주세요.',
+          );
+        }
+      }
+
+      throw new BadRequestException('카카오 친구 목록 조회에 실패했습니다.');
+    }
+  }
+  /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 }

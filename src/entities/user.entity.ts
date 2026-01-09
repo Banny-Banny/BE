@@ -86,6 +86,30 @@ export class User {
   kakaoId: string;
 
   @Column({
+    type: 'text',
+    nullable: true,
+    name: 'kakao_access_token',
+    comment: '카카오 액세스 토큰 (친구 목록 조회 등에 사용)',
+  })
+  kakaoAccessToken: string | null;
+
+  @Column({
+    type: 'text',
+    nullable: true,
+    name: 'kakao_refresh_token',
+    comment: '카카오 리프레시 토큰',
+  })
+  kakaoRefreshToken: string | null;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'last_kakao_friends_sync_at',
+    comment: '마지막 카카오 친구 동기화 시간',
+  })
+  lastKakaoFriendsSyncAt: Date | null;
+
+  @Column({
     type: 'varchar',
     length: 20,
     default: 'LOCAL',

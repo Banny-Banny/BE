@@ -379,16 +379,14 @@ export class CapsulesController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: '잘못된 id 또는 좌표' })
+  @ApiResponse({ status: 400, description: '잘못된 id' })
   @ApiResponse({ status: 401, description: '인증 실패' })
-  @ApiResponse({ status: 403, description: '위치 미도달 또는 친구 아님' })
   @ApiResponse({ status: 404, description: '캡슐 미존재/삭제' })
   async getEggDetail(
     @CurrentUser() user: User,
     @Param() params: GetCapsuleParamDto,
-    @Query() query: GetCapsuleQueryDto,
   ): Promise<GetEggDetailResponseDto> {
-    return this.capsulesService.getEggDetail(user, params.id, query);
+    return this.capsulesService.getEggDetail(user, params.id);
   }
 
   @Get(':id')

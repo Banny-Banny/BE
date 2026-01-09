@@ -23,6 +23,8 @@ import { AuthService, TokenResponse } from './auth.service';
 import { LocalLoginRequestDto } from './dto/local-login.request.dto';
 import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
 import { UserProfileResponseDto } from './dto/user-profile-response.dto';
+import { KakaoFriendsSyncRequestDto } from './dto/kakao-friends-sync.request.dto';
+import { KakaoFriendsSyncResponseDto } from './dto/kakao-friends-sync.response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from '../entities';
@@ -272,6 +274,62 @@ export class AuthController {
     return {
       valid: true,
       userId: user.id,
+    };
+  }
+
+  /**
+   * 카카오 친구 연동 및 권한 갱신
+   * POST /auth/kakao/friends-sync
+   */
+  @Post('kakao/friends-sync')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '카카오 친구 목록 연동 및 추가 동의 처리',
+    description:
+      '소셜 로그인 직후 또는 마이페이지에서 카카오 친구 연동 선택 시 호출합니다. 건너뛰기를 누를 경우 이 API는 호출되지 않습니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '친구 동기화 성공',
+    type: KakaoFriendsSyncResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: '유효하지 않거나 이미 사용된 카카오 인가 코드',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: { type: 'string', example: 'INVALID_CODE' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '동의창에서 친구 목록 항목을 체크 해제함',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 403 },
+        message: { type: 'string', example: 'INSUFFICIENT_SCOPE' },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증 실패' })
+  async syncKakaoFriends(
+    @CurrentUser() user: User,
+    @Body() dto: KakaoFriendsSyncRequestDto,
+  ): Promise<KakaoFriendsSyncResponseDto> {
+    const result = await this.authService.syncKakaoFriends(user, dto);
+    return {
+      success: true,
+      data: {
+        isSynced: result.isSynced,
+        syncedCount: result.syncedCount,
+        lastSyncedAt: result.lastSyncedAt.toISOString(),
+      },
     };
   }
 }

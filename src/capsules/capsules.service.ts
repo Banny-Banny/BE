@@ -622,7 +622,7 @@ export class CapsulesService {
   /**
    * 알 상세 정보 조회 (신규 형식)
    */
-  async getEggDetail(user: User, eggId: string, query: GetCapsuleQueryDto) {
+  async getEggDetail(user: User, eggId: string) {
     const capsule = await this.capsuleRepository.findOne({
       where: { id: eggId },
       relations: { product: true, user: true },
@@ -641,41 +641,7 @@ export class CapsulesService {
       throw new NotFoundException('CAPSULE_NOT_FOUND');
     }
 
-    // 본인 캡슐이 아닌 경우에만 친구 여부 확인
-    if (!isMine) {
-      const friend = await this.friendshipRepository.findOne({
-        where: [
-          {
-            userId: user.id,
-            friendId: capsule.userId,
-            status: FriendStatus.CONNECTED,
-          },
-          {
-            userId: capsule.userId,
-            friendId: user.id,
-            status: FriendStatus.CONNECTED,
-          },
-        ],
-      });
-
-      if (!friend) {
-        throw new ForbiddenException('FORBIDDEN_FRIENDSHIP');
-      }
-    }
-
-    // 본인 캡슐이 아닌 경우에만 위치 검증
-    if (!isMine) {
-      const { lat, lng } = query;
-      const capsuleLat =
-        capsule.latitude !== null ? Number(capsule.latitude) : null;
-      const capsuleLng =
-        capsule.longitude !== null ? Number(capsule.longitude) : null;
-
-      const within = this.isWithinRadius(capsuleLat, capsuleLng, lat, lng);
-      if (!within) {
-        throw new ForbiddenException('FORBIDDEN_LOCATION');
-      }
-    }
+    // 친구 관계 검증 및 위치 검증 제거 - 단순히 ID로 조회
 
     // 미디어 정보 조회
     const mediaEntities =
