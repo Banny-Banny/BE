@@ -1511,9 +1511,12 @@ export class CapsulesService {
       .createQueryBuilder('capsule')
       .leftJoinAndSelect('capsule.product', 'product')
       .where('capsule.user_id = :userId', { userId: user.id })
-      .andWhere('product.product_type = :productType', {
-        productType: 'EASTER_EGG',
-      })
+      .andWhere(
+        '(product.product_type = :productType OR capsule.product_id IS NULL)',
+        {
+          productType: 'EASTER_EGG',
+        },
+      )
       .withDeleted() // soft delete된 것도 포함
       .orderBy('capsule.created_at', 'DESC')
       .getMany();
@@ -1584,9 +1587,12 @@ export class CapsulesService {
       .leftJoinAndSelect('capsule.product', 'product')
       .where('log.viewer_id = :viewerId', { viewerId: user.id })
       .andWhere('capsule.deleted_at IS NULL') // 소멸된 캡슐은 제외
-      .andWhere('product.product_type = :productType', {
-        productType: 'EASTER_EGG',
-      })
+      .andWhere(
+        '(product.product_type = :productType OR capsule.product_id IS NULL)',
+        {
+          productType: 'EASTER_EGG',
+        },
+      )
       .orderBy(
         'log.viewed_at',
         sort === 'OLDEST' ? 'ASC' : 'DESC', // 기본값은 LATEST (DESC)
