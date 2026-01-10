@@ -787,10 +787,31 @@ export class CapsulesService {
       .where('capsule.deleted_at IS NULL')
       .andWhere('(product.id IS NULL OR product.isActive = true)')
       .andWhere(
-        `(capsule.user_id = :userId
-        OR EXISTS (SELECT 1 FROM friendships f WHERE f.user_id = :userId AND f.friend_id = capsule.user_id AND f.status = :status)
-        OR EXISTS (SELECT 1 FROM friendships fr WHERE fr.user_id = capsule.user_id AND fr.friend_id = :userId AND fr.status = :status))`,
-        { userId: user.id, status: FriendStatus.CONNECTED },
+        `(
+          -- 이스터에그: 본인 것 또는 친구 것
+          (
+            (product.product_type = :easterEggType OR product.id IS NULL)
+            AND (
+              capsule.user_id = :userId
+              OR EXISTS (SELECT 1 FROM friendships f WHERE f.user_id = :userId AND f.friend_id = capsule.user_id AND f.status = :status)
+              OR EXISTS (SELECT 1 FROM friendships fr WHERE fr.user_id = capsule.user_id AND fr.friend_id = :userId AND fr.status = :status)
+            )
+          )
+          -- 타임캡슐: 본인 것 또는 본인이 참여 중인 것
+          OR (
+            product.product_type = :timeCapsuleType
+            AND (
+              capsule.user_id = :userId
+              OR EXISTS (SELECT 1 FROM capsule_participant_slots s WHERE s.capsule_id = capsule.id AND s.user_id = :userId)
+            )
+          )
+        )`,
+        {
+          userId: user.id,
+          status: FriendStatus.CONNECTED,
+          easterEggType: ProductType.EASTER_EGG,
+          timeCapsuleType: ProductType.TIME_CAPSULE,
+        },
       );
 
     if (!include_locationless) {
