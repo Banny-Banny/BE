@@ -42,12 +42,13 @@ export class NotificationsService {
     limit: number = 20,
     offset: number = 0,
   ): Promise<PaginatedNotificationResponseDto> {
-    const [notifications, total] = await this.notificationRepository.findAndCount({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-      skip: offset,
-      take: limit,
-    });
+    const [notifications, total] =
+      await this.notificationRepository.findAndCount({
+        where: { userId },
+        order: { createdAt: 'DESC' },
+        skip: offset,
+        take: limit,
+      });
 
     const notificationItems = notifications.map(
       (notification) =>
@@ -108,6 +109,31 @@ export class NotificationsService {
 
     notification.isRead = true;
     await this.notificationRepository.save(notification);
+  }
+
+  /**
+   * 알림 삭제
+   * @param userId 사용자 ID
+   * @param notificationId 알림 ID
+   */
+  async deleteNotification(
+    userId: string,
+    notificationId: string,
+  ): Promise<void> {
+    const notification = await this.notificationRepository.findOne({
+      where: { id: notificationId },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('알림을 찾을 수 없습니다.');
+    }
+
+    // userId 권한 확인
+    if (notification.userId !== userId) {
+      throw new ForbiddenException('이 알림을 삭제할 권한이 없습니다.');
+    }
+
+    await this.notificationRepository.remove(notification);
   }
 
   /**
@@ -173,4 +199,3 @@ export class NotificationsService {
     }
   }
 }
-

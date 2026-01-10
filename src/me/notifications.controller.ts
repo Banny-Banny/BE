@@ -154,6 +154,51 @@ export class NotificationsController {
     await this.notificationsService.markAsRead(user.id, notificationId);
     return { message: '알림이 읽음 처리되었습니다.' };
   }
+
+  /**
+   * 알림 삭제
+   * POST /api/me/notifications/:notificationId/delete
+   */
+  @Post(':notificationId/delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '알림 삭제',
+    description: '특정 알림을 삭제합니다.',
+  })
+  @ApiParam({
+    name: 'notificationId',
+    description: '알림 ID',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '알림 삭제 성공',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: '알림이 삭제되었습니다.' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증되지 않은 사용자',
+  })
+  @ApiResponse({
+    status: 403,
+    description: '알림을 삭제할 권한이 없음',
+  })
+  @ApiResponse({
+    status: 404,
+    description: '알림을 찾을 수 없음',
+  })
+  async deleteNotification(
+    @CurrentUser() user: User,
+    @Param('notificationId') notificationId: string,
+  ): Promise<{ message: string }> {
+    await this.notificationsService.deleteNotification(user.id, notificationId);
+    return { message: '알림이 삭제되었습니다.' };
+  }
 }
 
 /**

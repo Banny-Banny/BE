@@ -43,7 +43,7 @@ export class Notification {
   @Column({
     type: 'enum',
     enum: NotificationType,
-    comment: '알림 타입: CAPSULE_OPEN, FRIEND_REQUEST, FRIEND_ACCEPTED, SYSTEM, MARKETING',
+    comment: '알림 타입: CAPSULE_OPEN, FRIEND_ADD, EGG_DISCOVERED, EGG_DELETED, SYSTEM, MARKETING',
   })
   type: NotificationType;
 

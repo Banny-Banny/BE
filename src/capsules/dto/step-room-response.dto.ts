@@ -92,6 +92,13 @@ export class SlotDto {
     nullable: true,
   })
   nickname: string | null;
+
+  @ApiProperty({
+    description:
+      '콘텐츠 작성 완료 여부 (해당 슬롯 사용자가 콘텐츠를 제출했는지 여부)',
+    example: true,
+  })
+  has_content: boolean;
 }
 
 /**
@@ -140,6 +147,7 @@ export class StepRoomDetailDto {
         is_host: true,
         status: 'ACCEPTED',
         nickname: '김동은',
+        has_content: true,
       },
       {
         slot_number: 2,
@@ -147,6 +155,7 @@ export class StepRoomDetailDto {
         is_host: false,
         status: 'PENDING',
         nickname: null,
+        has_content: false,
       },
     ],
   })

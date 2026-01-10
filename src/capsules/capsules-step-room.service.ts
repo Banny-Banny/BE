@@ -701,6 +701,7 @@ export class CapsulesStepRoomService {
         is_host: slot.slotIndex === 0,
         status: slot.userId ? 'ACCEPTED' : 'PENDING',
         nickname: slot.user?.nickname || null,
+        has_content: slot.status === 'COMPLETED',
       })),
     };
   }

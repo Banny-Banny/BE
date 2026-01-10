@@ -938,6 +938,80 @@ test('POST /api/me/notifications/:notificationId/read 200: 이미 읽은 알림 
   await cleanupUser(user.id);
 });
 
+test('POST /api/me/notifications/:notificationId/delete 200: 알림 삭제', async () => {
+  const user = await createUser('알림유저');
+  const notificationId = await createNotification(
+    user.id,
+    '제목1',
+    '내용1',
+    'SYSTEM',
+    false,
+  );
+
+  const res = await api.post(`/api/me/notifications/${notificationId}/delete`, {
+    headers: { Authorization: `Bearer ${user.token}` },
+  });
+
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect(body.message).toBe('알림이 삭제되었습니다.');
+
+  // DB 확인 - 삭제되었는지 확인
+  const notification = await client.query(
+    'SELECT * FROM notifications WHERE id = $1',
+    [notificationId],
+  );
+  expect(notification.rows.length).toBe(0);
+
+  await cleanupNotifications(user.id);
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/notifications/:notificationId/delete 404: 존재하지 않는 알림 삭제', async () => {
+  const user = await createUser('알림유저');
+  const fakeNotificationId = crypto.randomUUID();
+
+  const res = await api.post(
+    `/api/me/notifications/${fakeNotificationId}/delete`,
+    {
+      headers: { Authorization: `Bearer ${user.token}` },
+    },
+  );
+
+  expect(res.status()).toBe(404);
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/notifications/:notificationId/delete 403: 다른 사용자의 알림 삭제 시도', async () => {
+  const user1 = await createUser('유저1');
+  const user2 = await createUser('유저2');
+  const notificationId = await createNotification(
+    user2.id,
+    '제목1',
+    '내용1',
+    'SYSTEM',
+    false,
+  );
+
+  const res = await api.post(`/api/me/notifications/${notificationId}/delete`, {
+    headers: { Authorization: `Bearer ${user1.token}` },
+  });
+
+  expect(res.status()).toBe(403);
+
+  // DB 확인 - 삭제되지 않았는지 확인
+  const notification = await client.query(
+    'SELECT * FROM notifications WHERE id = $1',
+    [notificationId],
+  );
+  expect(notification.rows.length).toBe(1);
+
+  await cleanupNotifications(user2.id);
+  await cleanupUser(user1.id);
+  await cleanupUser(user2.id);
+});
+
 // ============================================
 // 관리자 알림 발송 테스트
 // ============================================

@@ -495,7 +495,11 @@ test('POST /api/payments/toss/confirm 409: 이미 승인된 결제', async () =>
   // 두 번째 승인 시도
   const res2 = await api.post('/api/payments/toss/confirm', {
     headers: { Authorization: `Bearer ${token}` },
-    data: { paymentKey: `pay-${crypto.randomUUID()}`, orderId, amount: totalAmount },
+    data: {
+      paymentKey: `pay-${crypto.randomUUID()}`,
+      orderId,
+      amount: totalAmount,
+    },
   });
   expect(res2.status()).toBe(409);
 
