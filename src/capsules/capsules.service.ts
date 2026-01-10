@@ -1086,9 +1086,9 @@ export class CapsulesService {
     mediaMap: Map<string, Media>,
   ) {
     const result = {
-      images_ids: [] as string[],
-      audio_id: null as string | null,
-      video_id: null as string | null,
+      images_ids: [] as Array<{ media_id: string; object_key: string | null }>,
+      audio_id: null as { media_id: string; object_key: string | null } | null,
+      video_id: null as { media_id: string; object_key: string | null } | null,
     };
 
     if (!entry || !entry.mediaItemIds || entry.mediaItemIds.length === 0) {
@@ -1098,20 +1098,30 @@ export class CapsulesService {
     entry.mediaItemIds.forEach((id, idx) => {
       const media = mediaMap.get(id);
       const mediaType = media?.type ?? entry.mediaTypes?.[idx] ?? null;
+      const objectKey = media?.objectKey ?? null;
 
       if (mediaType === MediaType.IMAGE) {
-        result.images_ids.push(id);
+        result.images_ids.push({
+          media_id: id,
+          object_key: objectKey,
+        });
       } else if (
         mediaType === MediaType.AUDIO ||
         mediaType === MediaType.MUSIC
       ) {
         // AUDIO와 MUSIC(deprecated) 모두 처리
         if (!result.audio_id) {
-          result.audio_id = id;
+          result.audio_id = {
+            media_id: id,
+            object_key: objectKey,
+          };
         }
       } else if (mediaType === MediaType.VIDEO) {
         if (!result.video_id) {
-          result.video_id = id;
+          result.video_id = {
+            media_id: id,
+            object_key: objectKey,
+          };
         }
       }
     });

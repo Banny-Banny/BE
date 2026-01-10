@@ -341,7 +341,8 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     expect(body.slots[0].wrote_at).toBeTruthy();
     expect(body.slots[0].content).toBe('오너의 비밀 메시지'); // ✅ 표시
     expect(body.slots[0].images_ids).toHaveLength(1); // ✅ 표시
-    expect(body.slots[0].images_ids[0]).toBe(mediaId1);
+    expect(body.slots[0].images_ids[0].media_id).toBe(mediaId1);
+    expect(body.slots[0].images_ids[0].object_key).toBeTruthy();
     expect(body.slots[0].audio_id).toBeNull();
     expect(body.slots[0].video_id).toBeNull();
 
@@ -352,7 +353,9 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     expect(body.slots[1].wrote_at).toBeTruthy();
     expect(body.slots[1].content).toBe('참여자의 추억'); // ✅ 표시
     expect(body.slots[1].images_ids).toEqual([]);
-    expect(body.slots[1].audio_id).toBe(mediaId2); // ✅ 표시
+    expect(body.slots[1].audio_id).toBeTruthy(); // ✅ 표시
+    expect(body.slots[1].audio_id.media_id).toBe(mediaId2);
+    expect(body.slots[1].audio_id.object_key).toBeTruthy();
     expect(body.slots[1].video_id).toBeNull();
 
     // 슬롯 3 (빈 슬롯)
