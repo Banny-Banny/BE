@@ -19,6 +19,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
@@ -157,7 +158,15 @@ export class CapsulesController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FilesInterceptor('media_files', 10))
+  @UseInterceptors(
+    FilesInterceptor('media_files', 10, {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 200 * 1024 * 1024, // 최대 200MB
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: '이스터에그(캡슐) 생성',

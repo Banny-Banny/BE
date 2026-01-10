@@ -16,6 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
@@ -49,7 +50,15 @@ export class CapsuleEntriesController {
 
   @Post(':id/entries')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FilesInterceptor('media_files', 3))
+  @UseInterceptors(
+    FilesInterceptor('media_files', 3, {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 200 * 1024 * 1024, // 최대 200MB
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: '타임캡슐 글 작성 (슬롯 1회 작성)',

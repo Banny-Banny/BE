@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   ApiBearerAuth,
   ApiConsumes,
@@ -282,11 +283,20 @@ export class CapsulesStepRoomController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'images', maxCount: 5 },
-      { name: 'music', maxCount: 1 },
-      { name: 'video', maxCount: 1 },
-    ]),
+    FileFieldsInterceptor(
+      [
+        { name: 'images', maxCount: 5 },
+        { name: 'music', maxCount: 1 },
+        { name: 'video', maxCount: 1 },
+      ],
+      {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+        storage: memoryStorage(), // 파일을 메모리에 버퍼로 저장
+        limits: {
+          fileSize: 200 * 1024 * 1024, // 최대 200MB (비디오 기준)
+        },
+      },
+    ),
   )
   @ApiOperation({
     summary: '스텝룸 콘텐츠 저장',

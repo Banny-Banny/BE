@@ -10,6 +10,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   ApiBearerAuth,
   ApiConsumes,
@@ -49,7 +50,15 @@ export class MediaController {
   }
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 200 * 1024 * 1024, // 최대 200MB
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: '미디어 파일 직접 업로드',

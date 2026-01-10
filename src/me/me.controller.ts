@@ -12,6 +12,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   ApiTags,
   ApiOperation,
@@ -142,7 +143,15 @@ export class MeController {
    * POST /api/me/profile-image
    */
   @Post('profile-image')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 최대 5MB
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: '프로필 이미지 업로드',
