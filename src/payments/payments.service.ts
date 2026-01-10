@@ -24,6 +24,8 @@ import { CapsulesService } from '../capsules/capsules.service';
 import { PaymentCancel } from '../entities/payment-cancel.entity';
 import { TossConfirmDto } from './dto/toss-confirm.dto';
 import { TossCancelDto } from './dto/toss-cancel.dto';
+import { GetMyPaymentsQueryDto } from './dto/get-my-payments-query.dto';
+import { GetMyPaymentsResponseDto } from './dto/get-my-payments-response.dto';
 import crypto from 'crypto';
 
 type KakaoReadyResponse = {
@@ -801,5 +803,59 @@ export class PaymentsService {
         receipt_url: targetPayment.receiptUrl,
       };
     });
+  }
+
+  /**
+   * 본인의 결제 내역 조회
+   */
+  async getMyPayments(
+    user: User,
+    query: GetMyPaymentsQueryDto,
+  ): Promise<GetMyPaymentsResponseDto> {
+    const { page = 1, limit = 10, status = 'ALL' } = query;
+    const skip = (page - 1) * limit;
+
+    // QueryBuilder 생성
+    const qb = this.paymentRepository
+      .createQueryBuilder('payment')
+      .innerJoin('payment.order', 'order')
+      .where('order.user_id = :userId', { userId: user.id })
+      .andWhere('payment.status = :paidStatus', {
+        paidStatus: PaymentStatus.PAID,
+      });
+
+    // 상태 필터링
+    if (status === 'DONE') {
+      qb.andWhere('payment.toss_status = :tossStatus', { tossStatus: 'DONE' });
+    } else if (status === 'CANCELED') {
+      qb.andWhere('payment.toss_status = :tossStatus', {
+        tossStatus: 'CANCELED',
+      });
+    }
+    // status === 'ALL'인 경우 추가 필터링 없음
+
+    // 최신순 정렬
+    qb.orderBy('payment.approvedAt', 'DESC');
+
+    // 페이지네이션
+    qb.skip(skip).take(limit);
+
+    const [payments, total] = await qb.getManyAndCount();
+
+    return {
+      payments: payments.map((p) => ({
+        paymentKey: p.paymentKey,
+        orderNo: p.orderNo,
+        tossStatus: p.tossStatus,
+        method: p.method,
+        currency: p.currency,
+        amount: p.amount,
+        approvedAt: p.approvedAt ? p.approvedAt.toISOString() : null,
+        receiptUrl: p.receiptUrl,
+      })),
+      total,
+      page,
+      limit,
+    };
   }
 }

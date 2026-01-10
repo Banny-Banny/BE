@@ -6,6 +6,7 @@ import {
   HttpCode,
   Get,
   Param,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -21,6 +22,8 @@ import { KakaoReadyDto } from './dto/kakao-ready.dto';
 import { KakaoApproveDto } from './dto/kakao-approve.dto';
 import { TossConfirmDto } from './dto/toss-confirm.dto';
 import { TossCancelDto } from './dto/toss-cancel.dto';
+import { GetMyPaymentsQueryDto } from './dto/get-my-payments-query.dto';
+import { GetMyPaymentsResponseDto } from './dto/get-my-payments-response.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth('access-token')
@@ -82,13 +85,27 @@ export class TossPaymentsController {
     return this.paymentsService.tossConfirm(user, dto);
   }
 
-  @Get(':paymentKey')
+  @Get('my-payments')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary: '토스 결제 단건 조회 (paymentKey)',
+    summary: '본인의 결제 내역 조회',
+    description:
+      'JWT에서 userId를 추출하여 본인의 결제 내역을 조회합니다. approvedAt 기준 최신순 정렬.',
   })
-  async getByPaymentKey(@Param('paymentKey') paymentKey: string) {
-    return this.paymentsService.tossGetByPaymentKey(paymentKey);
+  @ApiResponse({
+    status: 200,
+    description: '조회 성공',
+    type: GetMyPaymentsResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증 실패',
+  })
+  async getMyPayments(
+    @CurrentUser() user: User,
+    @Query() query: GetMyPaymentsQueryDto,
+  ): Promise<GetMyPaymentsResponseDto> {
+    return this.paymentsService.getMyPayments(user, query);
   }
 
   @Get('orders/:orderNo')
@@ -98,6 +115,15 @@ export class TossPaymentsController {
   })
   async getByOrderNo(@Param('orderNo') orderNo: string) {
     return this.paymentsService.tossGetByOrderNo(orderNo);
+  }
+
+  @Get(':paymentKey')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: '토스 결제 단건 조회 (paymentKey)',
+  })
+  async getByPaymentKey(@Param('paymentKey') paymentKey: string) {
+    return this.paymentsService.tossGetByPaymentKey(paymentKey);
   }
 
   @Post(':paymentKey/cancel')

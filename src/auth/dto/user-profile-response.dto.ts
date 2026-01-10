@@ -2,13 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class UserSummaryDto {
   @ApiProperty({
-    description: '작성한 캡슐 개수',
+    description: '작성한 타임캡슐 개수 (product_id가 있는 캡슐)',
     example: 3,
   })
-  capsuleCount: number;
+  timeCapsuleCount: number;
 
   @ApiProperty({
-    description: '작성한 이스터에그 개수 (viewLimit이 설정된 캡슐)',
+    description: '작성한 이스터에그 개수 (product_id가 없는 캡슐)',
     example: 12,
   })
   easterEggCount: number;

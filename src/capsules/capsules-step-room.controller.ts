@@ -39,6 +39,7 @@ import {
   JoinStepRoomDto,
   JoinStepRoomResponseDto,
 } from './dto/join-step-room.dto';
+import { GetMyContentResponseDto } from './dto/get-my-content-response.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -363,6 +364,58 @@ export class CapsulesStepRoomController {
       saveContentDto,
       files,
     );
+  }
+
+  @Get(':capsuleId/my-content')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '본인이 작성한 콘텐츠 조회',
+    description:
+      '대기실에서 본인이 작성한 콘텐츠를 조회합니다. 대기실을 나갔다가 다시 들어올 때 이전에 작성한 내용을 확인할 수 있습니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '콘텐츠 조회 성공',
+    type: GetMyContentResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증 실패',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Unauthorized',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '참여자가 아님',
+    schema: {
+      example: {
+        success: false,
+        error: 'NOT_PARTICIPANT',
+        message: '이 캡슐의 참여자가 아닙니다',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '콘텐츠를 작성하지 않음',
+    schema: {
+      example: {
+        success: false,
+        error: 'CONTENT_NOT_FOUND',
+        message: '아직 작성하지 않았습니다',
+      },
+    },
+  })
+  async getMyContent(
+    @Param('capsuleId', ParseUUIDPipe) capsuleId: string,
+    @CurrentUser() user: User,
+  ): Promise<GetMyContentResponseDto> {
+    return this.stepRoomService.getMyContent(capsuleId, user.id);
   }
 
   @Post(':capsuleId/submit')

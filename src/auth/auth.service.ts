@@ -309,19 +309,19 @@ export class AuthService {
       throw new UnauthorizedException('사용자를 찾을 수 없습니다.');
     }
 
-    // 타임캡슐 개수 (viewLimit = 0인 캡슐)
-    const capsuleCount = await this.capsuleRepository
+    // 타임캡슐 개수 (product_id가 있는 캡슐)
+    const timeCapsuleCount = await this.capsuleRepository
       .createQueryBuilder('capsule')
       .where('capsule.user_id = :userId', { userId })
-      .andWhere('(capsule.view_limit = 0 OR capsule.view_limit IS NULL)')
+      .andWhere('capsule.product_id IS NOT NULL')
       .andWhere('capsule.deleted_at IS NULL')
       .getCount();
 
-    // 이스터에그 개수 (viewLimit > 0인 캡슐)
+    // 이스터에그 개수 (product_id가 없는 캡슐)
     const easterEggCount = await this.capsuleRepository
       .createQueryBuilder('capsule')
       .where('capsule.user_id = :userId', { userId })
-      .andWhere('capsule.view_limit > 0')
+      .andWhere('capsule.product_id IS NULL')
       .andWhere('capsule.deleted_at IS NULL')
       .getCount();
 
@@ -343,7 +343,7 @@ export class AuthService {
       email: user.email,
       profileImageUrl: user.profileImg,
       summary: {
-        capsuleCount,
+        timeCapsuleCount,
         easterEggCount,
         friendCount,
       },
@@ -454,7 +454,7 @@ export class AuthService {
   /**
    * 카카오 인가 코드로 액세스 토큰 발급
    */
-  /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
+
   private async getKakaoAccessToken(
     code: string,
     redirectUri: string,
@@ -522,12 +522,11 @@ export class AuthService {
       throw new BadRequestException('카카오 액세스 토큰 발급에 실패했습니다.');
     }
   }
-  /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 
   /**
    * 카카오 친구 목록 조회
    */
-  /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
+
   private async getKakaoFriends(
     accessToken: string,
   ): Promise<Array<{ id: number; uuid: string; profile_nickname?: string }>> {
@@ -584,5 +583,4 @@ export class AuthService {
       throw new BadRequestException('카카오 친구 목록 조회에 실패했습니다.');
     }
   }
-  /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 }

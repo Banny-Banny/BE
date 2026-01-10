@@ -266,6 +266,205 @@ test('POST /api/me/settings 200: 알림 설정 수정', async () => {
 });
 
 // ============================================
+// 프로필 이미지 업로드 테스트
+// ============================================
+
+test('POST /api/me/profile-image 201: 프로필 이미지 업로드 성공 (JPEG)', async () => {
+  const user = await createUser('이미지업로드유저');
+
+  // 가짜 이미지 파일 생성 (Buffer)
+  const imageBuffer = Buffer.from('fake-image-data-jpeg');
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+    multipart: {
+      file: {
+        name: 'profile.jpg',
+        mimeType: 'image/jpeg',
+        buffer: imageBuffer,
+      },
+    },
+  });
+
+  if (res.status() !== 201) {
+    console.error('upload error', res.status(), await res.text());
+  }
+  expect(res.status()).toBe(201);
+
+  const body = await res.json();
+  expect(body.profileImageUrl).toBeDefined();
+  expect(body.profileImageUrl).toContain('profiles/');
+
+  // DB에서 프로필 이미지 URL 확인
+  const dbUser = await client.query(
+    'SELECT profile_img FROM users WHERE id = $1',
+    [user.id],
+  );
+  expect(dbUser.rows[0].profile_img).toBe(body.profileImageUrl);
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 201: 프로필 이미지 업로드 성공 (PNG)', async () => {
+  const user = await createUser('PNG업로드');
+
+  const imageBuffer = Buffer.from('fake-image-data-png');
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+    multipart: {
+      file: {
+        name: 'profile.png',
+        mimeType: 'image/png',
+        buffer: imageBuffer,
+      },
+    },
+  });
+
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  expect(body.profileImageUrl).toBeDefined();
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 201: 프로필 이미지 업로드 성공 (WEBP)', async () => {
+  const user = await createUser('WEBP업로드');
+
+  const imageBuffer = Buffer.from('fake-image-data-webp');
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+    multipart: {
+      file: {
+        name: 'profile.webp',
+        mimeType: 'image/webp',
+        buffer: imageBuffer,
+      },
+    },
+  });
+
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  expect(body.profileImageUrl).toBeDefined();
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 201: 기존 프로필 이미지 덮어쓰기', async () => {
+  const user = await createUser('덮어쓰기테스트');
+
+  // 기존 프로필 이미지 설정
+  const oldImageUrl = 'https://old-image.com/profile.jpg';
+  await client.query('UPDATE users SET profile_img = $1 WHERE id = $2', [
+    oldImageUrl,
+    user.id,
+  ]);
+
+  // 새 이미지 업로드
+  const imageBuffer = Buffer.from('new-image-data');
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+    multipart: {
+      file: {
+        name: 'new-profile.jpg',
+        mimeType: 'image/jpeg',
+        buffer: imageBuffer,
+      },
+    },
+  });
+
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  expect(body.profileImageUrl).not.toBe(oldImageUrl);
+
+  // DB 확인
+  const dbUser = await client.query(
+    'SELECT profile_img FROM users WHERE id = $1',
+    [user.id],
+  );
+  expect(dbUser.rows[0].profile_img).toBe(body.profileImageUrl);
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 400: 파일 없이 요청', async () => {
+  const user = await createUser('파일없음');
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+  });
+
+  expect(res.status()).toBe(400);
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 400: 잘못된 파일 형식 (PDF)', async () => {
+  const user = await createUser('잘못된형식');
+
+  const pdfBuffer = Buffer.from('fake-pdf-data');
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+    multipart: {
+      file: {
+        name: 'document.pdf',
+        mimeType: 'application/pdf',
+        buffer: pdfBuffer,
+      },
+    },
+  });
+
+  expect(res.status()).toBe(400);
+  const bodyText = await res.text();
+  expect(bodyText).toContain('jpeg, png, webp');
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 400: 파일 크기 초과 (6MB)', async () => {
+  const user = await createUser('크기초과');
+
+  // 6MB 크기의 버퍼 생성
+  const largeBuffer = Buffer.alloc(6 * 1024 * 1024);
+
+  const res = await api.post('/api/me/profile-image', {
+    headers: { Authorization: `Bearer ${user.token}` },
+    multipart: {
+      file: {
+        name: 'large-image.jpg',
+        mimeType: 'image/jpeg',
+        buffer: largeBuffer,
+      },
+    },
+  });
+
+  expect(res.status()).toBe(400);
+  const bodyText = await res.text();
+  expect(bodyText).toContain('5MB');
+
+  await cleanupUser(user.id);
+});
+
+test('POST /api/me/profile-image 401: 인증 없이 요청', async () => {
+  const imageBuffer = Buffer.from('fake-image');
+
+  const res = await api.post('/api/me/profile-image', {
+    multipart: {
+      file: {
+        name: 'profile.jpg',
+        mimeType: 'image/jpeg',
+        buffer: imageBuffer,
+      },
+    },
+  });
+
+  expect(res.status()).toBe(401);
+});
+
+// ============================================
 // 타임캡슐 리스트 테스트
 // ============================================
 

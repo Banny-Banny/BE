@@ -25,6 +25,7 @@ import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { JoinStepRoomResponseDto } from './dto/join-step-room.dto';
 import { MediaService } from '../media/media.service';
 import { CapsulesService } from './capsules.service';
+import { GetMyContentResponseDto } from './dto/get-my-content-response.dto';
 
 // Multer 파일 타입 정의
 interface MulterFile {
@@ -411,12 +412,69 @@ export class CapsulesStepRoomService {
   ): Promise<SubmitCapsuleResponseDto> {
     return await this.dataSource.transaction(async (manager) => {
       const capsuleRepo = manager.getRepository(Capsule);
+      const slotRepo = manager.getRepository(CapsuleParticipantSlot);
 
+      // 1. 모든 참여자 슬롯 데이터 조회
+      const slots = await slotRepo.find({
+        where: { capsuleId: capsule.id },
+        order: { slotIndex: 'ASC' },
+      });
+
+      // 2. 슬롯 데이터를 캡슐 필드로 집계
+      const textBlocks: { order: number; content: string }[] = [];
+      const allMediaIds: string[] = [];
+      const mediaTypes: (MediaType | null)[] = [];
+
+      slots.forEach((slot, index) => {
+        // 텍스트 메시지 수집
+        if (slot.textMessage) {
+          textBlocks.push({
+            order: index + 1,
+            content: slot.textMessage,
+          });
+        }
+
+        // 이미지 ID 수집
+        if (slot.imageIds && slot.imageIds.length > 0) {
+          allMediaIds.push(...slot.imageIds);
+          slot.imageIds.forEach(() => mediaTypes.push(MediaType.IMAGE));
+        }
+
+        // 음악 ID 수집
+        if (slot.musicId) {
+          allMediaIds.push(slot.musicId);
+          mediaTypes.push(MediaType.MUSIC);
+        }
+
+        // 비디오 ID 수집
+        if (slot.videoId) {
+          allMediaIds.push(slot.videoId);
+          mediaTypes.push(MediaType.VIDEO);
+        }
+      });
+
+      // 3. 캡슐 필드 업데이트
       capsule.latitude = latitude;
       capsule.longitude = longitude;
       capsule.roomStatus = RoomStatus.BURIED;
       capsule.buriedAt = new Date();
       capsule.isAutoSubmitted = isAutoSubmitted;
+
+      // 참여자 데이터 반영
+      capsule.textBlocks = textBlocks.length > 0 ? textBlocks : null;
+      capsule.mediaItemIds = allMediaIds.length > 0 ? allMediaIds : null;
+      capsule.mediaTypes = mediaTypes.length > 0 ? mediaTypes : null;
+
+      // content는 모든 텍스트를 합친 것 (최대 500자)
+      if (textBlocks.length > 0) {
+        const combinedText = textBlocks.map((tb) => tb.content).join(' ');
+        capsule.content = combinedText.substring(0, 500);
+      }
+
+      // title이 없으면 기본값 설정
+      if (!capsule.title) {
+        capsule.title = '타임캡슐';
+      }
 
       await capsuleRepo.save(capsule);
 
@@ -836,6 +894,111 @@ export class CapsulesStepRoomService {
       saveContentDto,
       files,
     );
+  }
+
+  /**
+   * 본인이 작성한 콘텐츠 조회
+   */
+  async getMyContent(
+    capsuleId: string,
+    userId: string,
+  ): Promise<GetMyContentResponseDto> {
+    // 1. 캡슐 존재 확인
+    const { capsule } = await this.capsulesService.ensurePaidCapsuleContext(
+      capsuleId,
+    );
+
+    // 2. 사용자 조회
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: '사용자를 찾을 수 없습니다',
+      });
+    }
+
+    // 3. 본인의 슬롯 조회
+    const slot = await this.slotRepository.findOne({
+      where: { capsuleId, userId },
+      relations: ['music', 'video'],
+    });
+
+    // 4. 슬롯이 없으면 참여자가 아님
+    if (!slot) {
+      throw new ForbiddenException({
+        success: false,
+        error: 'NOT_PARTICIPANT',
+        message: '이 캡슐의 참여자가 아닙니다',
+      });
+    }
+
+    // 5. 콘텐츠를 작성하지 않았으면 404
+    if (slot.status === 'PENDING' && !slot.textMessage) {
+      throw new NotFoundException({
+        success: false,
+        error: 'CONTENT_NOT_FOUND',
+        message: '아직 작성하지 않았습니다',
+      });
+    }
+
+    // 6. 미디어 URL 생성
+    const images: Array<{
+      media_id: string;
+      url: string;
+      order: number;
+    }> = [];
+
+    if (slot.imageIds && slot.imageIds.length > 0) {
+      for (let i = 0; i < slot.imageIds.length; i++) {
+        const mediaId = slot.imageIds[i];
+        const signedData = await this.mediaService.getSignedUrl(user, mediaId);
+        images.push({
+          media_id: mediaId,
+          url: signedData.url,
+          order: i + 1,
+        });
+      }
+    }
+
+    let music: { media_id: string; url: string } | null = null;
+    if (slot.musicId && slot.music) {
+      const signedData = await this.mediaService.getSignedUrl(
+        user,
+        slot.musicId,
+      );
+      music = {
+        media_id: slot.musicId,
+        url: signedData.url,
+      };
+    }
+
+    let video: { media_id: string; url: string } | null = null;
+    if (slot.videoId && slot.video) {
+      const signedData = await this.mediaService.getSignedUrl(
+        user,
+        slot.videoId,
+      );
+      video = {
+        media_id: slot.videoId,
+        url: signedData.url,
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        slot_id: slot.id,
+        user_id: slot.userId!,
+        text_message: slot.textMessage,
+        status: slot.status,
+        images,
+        music,
+        video,
+        created_at: slot.createdAt,
+        updated_at: slot.updatedAt,
+      },
+    };
   }
 
   /**

@@ -176,11 +176,40 @@ async function createCapsuleWithOrder(
 }
 
 async function completeAllSlots(capsuleId: string) {
-  // user_id가 있는 슬롯만 COMPLETED 상태로 변경 (미참여자 슬롯은 제외)
-  await client.query(
-    `UPDATE capsule_participant_slots SET status = 'COMPLETED' WHERE capsule_id = $1 AND user_id IS NOT NULL`,
+  // 모든 참여자를 COMPLETED 상태로 변경하고 샘플 데이터 추가
+  const slots = await client.query(
+    `SELECT id, slot_index FROM capsule_participant_slots WHERE capsule_id = $1 ORDER BY slot_index`,
     [capsuleId],
   );
+
+  for (const slot of slots.rows) {
+    // 테스트용 미디어 레코드 생성
+    const mediaId1 = crypto.randomUUID();
+    const mediaId2 = crypto.randomUUID();
+
+    await client.query(
+      `INSERT INTO media (id, user_id, type, object_key, content_type, size, created_at)
+       VALUES ($1, (SELECT user_id FROM capsules WHERE id = $3), 'IMAGE', $4, 'image/jpeg', 1024, NOW()),
+              ($2, (SELECT user_id FROM capsules WHERE id = $3), 'IMAGE', $5, 'image/jpeg', 1024, NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        mediaId1,
+        mediaId2,
+        capsuleId,
+        `test/image1_${mediaId1}.jpg`,
+        `test/image2_${mediaId2}.jpg`,
+      ],
+    );
+
+    await client.query(
+      `UPDATE capsule_participant_slots 
+       SET status = 'COMPLETED', 
+           text_message = $1, 
+           image_ids = ARRAY[$2, $3]::uuid[]
+       WHERE id = $4`,
+      [`참여자 ${slot.slot_index + 1}의 메시지`, mediaId1, mediaId2, slot.id],
+    );
+  }
 }
 
 test.beforeAll(async () => {
@@ -245,7 +274,8 @@ test.describe('타임캡슐 최종 제출 API', () => {
     );
 
     if (!response.ok()) {
-      console.error('Submit failed:', response.status(), await response.text());
+      const errorText = await response.text();
+      console.error('Submit failed:', response.status(), errorText);
     }
 
     expect(response.status()).toBe(201);
@@ -257,15 +287,49 @@ test.describe('타임캡슐 최종 제출 API', () => {
     expect(body.data.location.longitude).toBe(126.978);
     expect(body.data.participants).toBe(4);
 
-    // 4. DB에서 캡슐 상태 확인
+    // 4. DB에서 캡슐 상태 및 콘텐츠 확인
     const capsuleResult = await client.query(
-      `SELECT room_status, buried_at, is_auto_submitted, latitude, longitude FROM capsules WHERE id = $1`,
+      `SELECT room_status, buried_at, is_auto_submitted, latitude, longitude, 
+              content, text_blocks, media_item_ids, media_types 
+       FROM capsules WHERE id = $1`,
       [capsuleId],
     );
     expect(capsuleResult.rows[0].room_status).toBe('BURIED');
     expect(capsuleResult.rows[0].is_auto_submitted).toBe(false);
     expect(Number(capsuleResult.rows[0].latitude)).toBe(37.5665);
     expect(Number(capsuleResult.rows[0].longitude)).toBe(126.978);
+
+    // 5. 참여자 콘텐츠가 캡슐에 반영되었는지 확인
+    expect(capsuleResult.rows[0].content).not.toBeNull();
+    expect(capsuleResult.rows[0].text_blocks).not.toBeNull();
+    expect(Array.isArray(capsuleResult.rows[0].text_blocks)).toBe(true);
+    expect(capsuleResult.rows[0].text_blocks.length).toBe(4); // 4명의 참여자
+
+    // textBlocks 내용 확인
+    capsuleResult.rows[0].text_blocks.forEach(
+      (block: { order: number; content: string }, index: number) => {
+        expect(block.order).toBe(index + 1);
+        expect(block.content).toContain(`참여자 ${index + 1}의 메시지`);
+      },
+    );
+
+    // 미디어 ID 확인 (4명 * 2개 이미지 = 8개)
+    expect(capsuleResult.rows[0].media_item_ids).not.toBeNull();
+    expect(capsuleResult.rows[0].media_item_ids.length).toBe(8);
+
+    // 미디어 타입 확인 (PostgreSQL이 enum 배열을 문자열로 반환)
+    expect(capsuleResult.rows[0].media_types).not.toBeNull();
+    const mediaTypes = capsuleResult.rows[0].media_types
+      .replace('{', '')
+      .replace('}', '')
+      .split(',');
+    expect(mediaTypes.length).toBe(8);
+
+    // 모든 타입이 IMAGE인지 확인
+    const allImagesCount = mediaTypes.filter(
+      (t: string) => t === 'IMAGE',
+    ).length;
+    expect(allImagesCount).toBe(8);
   });
 
   test('should reject when not room owner', async () => {
