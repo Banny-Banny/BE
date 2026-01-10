@@ -232,6 +232,10 @@ export class CapsulesStepRoomService {
         });
       }
     }
+
+    // 전체 미디어 개수는 주문의 설정에 따라 자동으로 제한됨
+    // (photoCount + addMusic + addVideo)
+    // 개별 검증만으로 충분함
   }
 
   /**

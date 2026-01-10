@@ -24,7 +24,7 @@ import { Order } from './order.entity';
  */
 @Entity('capsules')
 @Check(
-  '(media_urls IS NULL OR array_length(media_urls, 1) <= 3) AND (media_types IS NULL OR array_length(media_types, 1) <= 3)',
+  '(media_urls IS NULL OR array_length(media_urls, 1) <= 10) AND (media_types IS NULL OR array_length(media_types, 1) <= 10)',
 )
 export class Capsule {
   @PrimaryGeneratedColumn('uuid')
