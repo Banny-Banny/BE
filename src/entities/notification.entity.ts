@@ -43,7 +43,8 @@ export class Notification {
   @Column({
     type: 'enum',
     enum: NotificationType,
-    comment: '알림 타입: CAPSULE_OPEN, FRIEND_ADD, EGG_DISCOVERED, EGG_DELETED, SYSTEM, MARKETING',
+    comment:
+      '알림 타입: CAPSULE_OPEN, FRIEND_ADD, FRIEND_ACCEPTED, EGG_DISCOVERED, EASTER_EGG_VIEWED, EGG_DELETED, SYSTEM, MARKETING',
   })
   type: NotificationType;
 
@@ -66,4 +67,3 @@ export class Notification {
   @JoinColumn({ name: 'user_id' })
   user: User;
 }
-
