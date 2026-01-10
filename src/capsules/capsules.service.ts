@@ -1394,8 +1394,9 @@ export class CapsulesService {
       },
     });
 
-    // 4. 남은 슬롯 수는 user.eggSlots (캡슐 생성 시 자동으로 차감됨)
-    const remainingSlots = user.eggSlots;
+    // 4. 남은 슬롯 수 = 전체 슬롯 - 사용 중인 슬롯
+    // 공식: totalSlots = usedSlots + remainingSlots
+    const remainingSlots = totalSlots - usedSlots;
 
     return {
       totalSlots,
