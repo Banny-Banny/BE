@@ -904,9 +904,7 @@ export class CapsulesStepRoomService {
     userId: string,
   ): Promise<GetMyContentResponseDto> {
     // 1. 캡슐 존재 확인
-    const { capsule } = await this.capsulesService.ensurePaidCapsuleContext(
-      capsuleId,
-    );
+    await this.capsulesService.ensurePaidCapsuleContext(capsuleId);
 
     // 2. 사용자 조회
     const user = await this.userRepository.findOne({ where: { id: userId } });
