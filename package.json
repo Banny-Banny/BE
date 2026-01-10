@@ -42,6 +42,7 @@
     "class-validator": "^0.14.3",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.5",
+    "expo-server-sdk": "^4.0.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-kakao": "^1.0.1",

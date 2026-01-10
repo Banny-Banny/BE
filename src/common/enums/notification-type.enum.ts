@@ -9,8 +9,14 @@ export enum NotificationType {
   /** 친구 추가 알림 (요청/수락 통합) */
   FRIEND_ADD = 'FRIEND_ADD',
 
+  /** 친구 요청 수락 알림 */
+  FRIEND_ACCEPTED = 'FRIEND_ACCEPTED',
+
   /** 에그 발견 알림 */
   EGG_DISCOVERED = 'EGG_DISCOVERED',
+
+  /** 이스터에그 발견 알림 (프론트엔드 용) */
+  EASTER_EGG_VIEWED = 'EASTER_EGG_VIEWED',
 
   /** 에그 소멸 알림 */
   EGG_DELETED = 'EGG_DELETED',
@@ -21,4 +27,3 @@ export enum NotificationType {
   /** 마케팅 알림 */
   MARKETING = 'MARKETING',
 }
-

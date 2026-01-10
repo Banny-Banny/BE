@@ -134,6 +134,15 @@ export class User {
   isPushAgreed: boolean;
 
   @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'push_token',
+    comment: 'Expo Push 알림 토큰',
+  })
+  pushToken: string | null;
+
+  @Column({
     type: 'boolean',
     default: false,
     name: 'is_location_term_agreed',

@@ -28,6 +28,8 @@ import { GetCapsuleSlotsResponseDto } from './dto/get-capsule-slots.dto';
 import { MediaService } from '../media/media.service';
 import { GetViewersResponseDto } from './dto/get-viewers-response.dto';
 import { MulterFile } from '../media/types/multer-file.interface';
+import { PushNotificationService } from '../common/services/push-notification.service';
+import { NotificationType } from '../common/enums/notification-type.enum';
 
 @Injectable()
 export class CapsulesService {
@@ -59,6 +61,7 @@ export class CapsulesService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly mediaService: MediaService,
+    private readonly pushNotificationService: PushNotificationService,
   ) {}
 
   private validateMedia(
@@ -1418,7 +1421,7 @@ export class CapsulesService {
     capsuleId: string,
   ): Promise<{ success: boolean; message: string; is_first_view: boolean }> {
     // 트랜잭션으로 감싸서 access_log 삽입과 view_count 증가를 원자적으로 처리
-    return await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const capsuleRepo = manager.getRepository(Capsule);
       const accessLogRepo = manager.getRepository(CapsuleAccessLog);
 
@@ -1438,6 +1441,7 @@ export class CapsulesService {
           success: true,
           message: '본인이 작성한 이스터에그입니다.',
           is_first_view: false,
+          capsule,
         };
       }
 
@@ -1455,6 +1459,7 @@ export class CapsulesService {
           success: true,
           message: '이미 발견한 이스터에그입니다.',
           is_first_view: false,
+          capsule,
         };
       }
 
@@ -1472,8 +1477,35 @@ export class CapsulesService {
         success: true,
         message: '이스터에그를 발견했습니다!',
         is_first_view: true,
+        capsule,
       };
     });
+
+    // 6. 트랜잭션 외부에서 알림 전송 (첫 조회인 경우)
+    if (result.is_first_view && result.capsule) {
+      // 비동기 알림 전송 (실패해도 에러 처리하지 않음)
+      this.pushNotificationService
+        .createAndSendNotification(
+          result.capsule.userId,
+          NotificationType.EASTER_EGG_VIEWED,
+          '누군가 내 이스터에그를 발견했어요!',
+          `${user.nickname}님이 내 이스터에그를 발견했습니다.`,
+          {
+            eggId: capsuleId,
+            viewerId: user.id,
+          },
+        )
+        .catch((error) => {
+          console.error('이스터에그 발견 알림 전송 실패:', error);
+        });
+    }
+
+    // capsule 정보를 제외하고 반환
+    return {
+      success: result.success,
+      message: result.message,
+      is_first_view: result.is_first_view,
+    };
   }
 
   /**

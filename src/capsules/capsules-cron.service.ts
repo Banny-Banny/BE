@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThan, In, IsNull } from 'typeorm';
+import { Repository, DataSource, LessThan, In, IsNull, Between } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
 import { CapsuleParticipantSlot } from '../entities/capsule-participant-slot.entity';
 import { RoomStatus } from '../common/enums';
+import { PushNotificationService } from '../common/services/push-notification.service';
+import { NotificationType } from '../common/enums/notification-type.enum';
 
 @Injectable()
 export class CapsulesCronService {
@@ -17,6 +19,7 @@ export class CapsulesCronService {
     private readonly slotRepository: Repository<CapsuleParticipantSlot>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly pushNotificationService: PushNotificationService,
   ) {}
 
   /**
@@ -102,6 +105,66 @@ export class CapsulesCronService {
       // 4. TODO: 알림 발송 (참여자 전원)
       // await this.sendAutoSubmitNotifications(capsule);
     });
+  }
+
+  /**
+   * 매 시간 실행: 타임캡슐 공개 시간 도래 시 알림 전송
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleCapsuleOpenNotifications(): Promise<void> {
+    this.logger.log('🕐 [크론잡 시작] 타임캡슐 공개 알림 전송 시작');
+
+    try {
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+      // 1. 최근 1시간 이내에 공개된 캡슐 조회 (BURIED 상태)
+      const openedCapsules = await this.capsuleRepository.find({
+        where: {
+          openAt: Between(oneHourAgo, now),
+          roomStatus: RoomStatus.BURIED,
+          deletedAt: IsNull(),
+        },
+        relations: ['user'],
+      });
+
+      this.logger.log(`✅ 공개 알림 대상 캡슐: ${openedCapsules.length}개`);
+
+      if (openedCapsules.length === 0) {
+        return;
+      }
+
+      // 2. 각 캡슐의 소유자에게 알림 전송
+      for (const capsule of openedCapsules) {
+        try {
+          await this.pushNotificationService.createAndSendNotification(
+            capsule.userId,
+            NotificationType.CAPSULE_OPEN,
+            '캡슐이 열렸어요',
+            `${capsule.title} 캡슐이 공개되었습니다.`,
+            {
+              capsuleId: capsule.id,
+            },
+          );
+
+          this.logger.log(
+            `✅ 캡슐 공개 알림 전송 완료: ${capsule.id} -> ${capsule.userId}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `❌ 캡슐 공개 알림 전송 실패: ${capsule.id}`,
+            error instanceof Error ? error.stack : error,
+          );
+        }
+      }
+
+      this.logger.log('🎉 [크론잡 완료] 타임캡슐 공개 알림 전송 완료');
+    } catch (error) {
+      this.logger.error(
+        '❌ [크론잡 에러] 타임캡슐 공개 알림 전송 중 오류 발생',
+        error instanceof Error ? error.stack : error,
+      );
+    }
   }
 
   /**

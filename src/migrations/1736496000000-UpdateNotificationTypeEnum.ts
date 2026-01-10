@@ -7,16 +7,45 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  */
 export class UpdateNotificationTypeEnum1736496000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // 1. 기존 데이터 마이그레이션 (FRIEND_REQUEST, FRIEND_ACCEPTED → FRIEND_ADD)
+    // 1. 새 enum 타입 생성 (임시)
+    await queryRunner.query(`
+      CREATE TYPE notification_type_enum_new AS ENUM (
+        'CAPSULE_OPEN',
+        'FRIEND_REQUEST',
+        'FRIEND_ACCEPTED',
+        'FRIEND_ADD',
+        'EGG_DISCOVERED',
+        'EGG_DELETED',
+        'SYSTEM',
+        'MARKETING'
+      )
+    `);
+
+    // 2. 기존 컬럼 타입을 새 enum으로 변경 (기존 값들도 포함되어 있어 안전)
+    await queryRunner.query(`
+      ALTER TABLE notifications 
+      ALTER COLUMN type TYPE notification_type_enum_new 
+      USING type::text::notification_type_enum_new
+    `);
+
+    // 3. 기존 enum 타입 삭제
+    await queryRunner.query(`DROP TYPE IF EXISTS notification_type_enum`);
+
+    // 4. 새 enum 타입 이름 변경
+    await queryRunner.query(`
+      ALTER TYPE notification_type_enum_new RENAME TO notification_type_enum
+    `);
+
+    // 5. 기존 데이터 마이그레이션 (FRIEND_REQUEST, FRIEND_ACCEPTED → FRIEND_ADD)
     await queryRunner.query(`
       UPDATE notifications 
       SET type = 'FRIEND_ADD' 
       WHERE type IN ('FRIEND_REQUEST', 'FRIEND_ACCEPTED')
     `);
 
-    // 2. 새 enum 타입 생성 (임시)
+    // 6. 최종 enum 타입 생성 (불필요한 값 제거)
     await queryRunner.query(`
-      CREATE TYPE notification_type_enum_new AS ENUM (
+      CREATE TYPE notification_type_enum_final AS ENUM (
         'CAPSULE_OPEN',
         'FRIEND_ADD',
         'EGG_DISCOVERED',
@@ -26,22 +55,22 @@ export class UpdateNotificationTypeEnum1736496000000 implements MigrationInterfa
       )
     `);
 
-    // 3. 기존 컬럼 타입 변경
+    // 7. 컬럼 타입을 최종 enum으로 변경
     await queryRunner.query(`
       ALTER TABLE notifications 
-      ALTER COLUMN type TYPE notification_type_enum_new 
-      USING type::text::notification_type_enum_new
+      ALTER COLUMN type TYPE notification_type_enum_final 
+      USING type::text::notification_type_enum_final
     `);
 
-    // 4. 기존 enum 타입 삭제
-    await queryRunner.query(`DROP TYPE notification_type_enum`);
+    // 8. 임시 enum 타입 삭제
+    await queryRunner.query(`DROP TYPE IF EXISTS notification_type_enum`);
 
-    // 5. 새 enum 타입 이름 변경
+    // 9. 최종 enum 타입 이름 변경
     await queryRunner.query(`
-      ALTER TYPE notification_type_enum_new RENAME TO notification_type_enum
+      ALTER TYPE notification_type_enum_final RENAME TO notification_type_enum
     `);
 
-    // 6. 컬럼 comment 업데이트
+    // 10. 컬럼 comment 업데이트
     await queryRunner.query(`
       COMMENT ON COLUMN notifications.type IS '알림 타입: CAPSULE_OPEN, FRIEND_ADD, EGG_DISCOVERED, EGG_DELETED, SYSTEM, MARKETING'
     `);
@@ -73,7 +102,7 @@ export class UpdateNotificationTypeEnum1736496000000 implements MigrationInterfa
     `);
 
     // 3. 기존 enum 타입 삭제
-    await queryRunner.query(`DROP TYPE notification_type_enum`);
+    await queryRunner.query(`DROP TYPE IF EXISTS notification_type_enum`);
 
     // 4. 새 enum 타입 이름 변경
     await queryRunner.query(`

@@ -68,7 +68,9 @@ export enum RoomStatus {
 export enum NotificationType {
   CAPSULE_OPEN = 'CAPSULE_OPEN', // 타임캡슐 오픈 알림
   FRIEND_ADD = 'FRIEND_ADD', // 친구 추가 알림 (요청/수락 통합)
+  FRIEND_ACCEPTED = 'FRIEND_ACCEPTED', // 친구 요청 수락 알림
   EGG_DISCOVERED = 'EGG_DISCOVERED', // 에그 발견 알림
+  EASTER_EGG_VIEWED = 'EASTER_EGG_VIEWED', // 이스터에그 발견 알림 (프론트엔드 용)
   EGG_DELETED = 'EGG_DELETED', // 에그 소멸 알림
   SYSTEM = 'SYSTEM', // 시스템 공지
   MARKETING = 'MARKETING', // 마케팅 알림

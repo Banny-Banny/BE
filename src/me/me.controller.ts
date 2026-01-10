@@ -31,6 +31,7 @@ import { ProfileResponseDto } from './dto/profile-response.dto';
 import { PaginationQueryDto } from './dto/pagination.dto';
 import { PaginatedCapsuleResponseDto } from './dto/capsule-list-response.dto';
 import { MulterFile } from '../media/types/multer-file.interface';
+import { RegisterPushTokenDto } from './dto/register-push-token.dto';
 
 /**
  * 마이페이지 컨트롤러
@@ -136,6 +137,46 @@ export class MeController {
   ): Promise<{ message: string }> {
     await this.meService.updateSettings(user.id, dto);
     return { message: '알림 설정이 수정되었습니다.' };
+  }
+
+  /**
+   * 푸시 토큰 등록
+   * POST /api/me/push-token
+   */
+  @Post('push-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '푸시 토큰 등록',
+    description:
+      'Expo Push 알림을 위한 디바이스 토큰을 등록합니다. 로그인 시마다 최신 토큰으로 업데이트하는 것을 권장합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '푸시 토큰 등록 성공',
+    schema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          example: '푸시 토큰이 등록되었습니다.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청 데이터',
+  })
+  @ApiResponse({
+    status: 401,
+    description: '인증되지 않은 사용자',
+  })
+  async registerPushToken(
+    @CurrentUser() user: User,
+    @Body() dto: RegisterPushTokenDto,
+  ): Promise<{ message: string }> {
+    await this.meService.registerPushToken(user.id, dto.token);
+    return { message: '푸시 토큰이 등록되었습니다.' };
   }
 
   /**

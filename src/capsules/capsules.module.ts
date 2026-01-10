@@ -17,8 +17,10 @@ import {
   CapsuleParticipantSlot,
   CapsuleEntry,
   CapsuleAccessLog,
+  Notification,
 } from '../entities';
 import { MediaModule } from '../media/media.module';
+import { PushNotificationService } from '../common/services/push-notification.service';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { MediaModule } from '../media/media.module';
       CapsuleParticipantSlot,
       CapsuleEntry,
       CapsuleAccessLog,
+      Notification,
     ]),
     ScheduleModule.forRoot(),
     MediaModule,
@@ -41,7 +44,12 @@ import { MediaModule } from '../media/media.module';
     CapsuleEntriesController,
     CapsulesStepRoomController,
   ],
-  providers: [CapsulesService, CapsulesStepRoomService, CapsulesCronService],
+  providers: [
+    CapsulesService,
+    CapsulesStepRoomService,
+    CapsulesCronService,
+    PushNotificationService,
+  ],
   exports: [CapsulesService, CapsulesStepRoomService],
 })
 export class CapsulesModule {}

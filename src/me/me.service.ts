@@ -137,6 +137,24 @@ export class MeService {
   }
 
   /**
+   * 푸시 토큰 등록
+   * @param userId 사용자 ID
+   * @param token 푸시 토큰
+   */
+  async registerPushToken(userId: string, token: string): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('사용자를 찾을 수 없습니다.');
+    }
+
+    user.pushToken = token;
+    await this.userRepository.save(user);
+  }
+
+  /**
    * 프로필 이미지 직접 업로드 (multipart/form-data)
    * MediaService를 통해 S3에 업로드하고 즉시 DB 반영
    * @param userId 사용자 ID

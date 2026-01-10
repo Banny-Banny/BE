@@ -43,8 +43,15 @@ export class NotificationItemDto {
   })
   createdAt: Date;
 
-  constructor(partial: Partial<NotificationItemDto>) {
-    Object.assign(this, partial);
+  constructor(data: {
+    id: string;
+    title: string;
+    content: string;
+    type: NotificationType;
+    isRead: boolean;
+    createdAt: Date;
+  }) {
+    Object.assign(this, data);
   }
 }
 

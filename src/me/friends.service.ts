@@ -15,6 +15,8 @@ import {
   FriendProfileDto,
   PaginatedFriendResponseDto,
 } from './dto/friend-list-response.dto';
+import { PushNotificationService } from '../common/services/push-notification.service';
+import { NotificationType } from '../common/enums/notification-type.enum';
 
 /**
  * 친구 관리 서비스
@@ -27,6 +29,7 @@ export class FriendsService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Friendship)
     private readonly friendshipRepository: Repository<Friendship>,
+    private readonly pushNotificationService: PushNotificationService,
   ) {}
 
   /**
@@ -133,6 +136,30 @@ export class FriendsService {
     });
 
     await this.friendshipRepository.save(friendship);
+
+    // 6. 상대방에게 친구 추가 알림 전송
+    const currentUser = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'nickname'],
+    });
+
+    if (currentUser) {
+      // 상대방에게 알림 전송 (친구 요청 수락 알림)
+      await this.pushNotificationService
+        .createAndSendNotification(
+          targetUser.id,
+          NotificationType.FRIEND_ACCEPTED,
+          '새로운 친구',
+          `${currentUser.nickname}님이 친구 요청을 수락했습니다.`,
+          {
+            friendId: userId,
+          },
+        )
+        .catch((error) => {
+          // 알림 전송 실패해도 친구 추가는 성공으로 처리
+          console.error('친구 추가 알림 전송 실패:', error);
+        });
+    }
 
     return new AddFriendResponseDto('친구가 추가되었습니다.', friendship.id);
   }

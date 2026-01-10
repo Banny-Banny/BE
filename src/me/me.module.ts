@@ -19,6 +19,7 @@ import {
   AdminNotificationsController,
 } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { PushNotificationService } from '../common/services/push-notification.service';
 
 /**
  * 마이페이지 모듈
@@ -43,7 +44,17 @@ import { NotificationsService } from './notifications.service';
     NotificationsController,
     AdminNotificationsController,
   ],
-  providers: [MeService, FriendsService, NotificationsService],
-  exports: [MeService, FriendsService, NotificationsService],
+  providers: [
+    MeService,
+    FriendsService,
+    NotificationsService,
+    PushNotificationService,
+  ],
+  exports: [
+    MeService,
+    FriendsService,
+    NotificationsService,
+    PushNotificationService,
+  ],
 })
 export class MeModule {}
