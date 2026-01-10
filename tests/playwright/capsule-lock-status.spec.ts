@@ -200,7 +200,7 @@ test.afterAll(async () => {
 });
 
 test.describe('타임캡슐 조회 - 잠금 상태', () => {
-  test('🔒 잠긴 캡슐: content와 media_items가 숨겨짐', async () => {
+  test('🔒 잠긴 캡슐: content와 미디어가 숨겨짐', async () => {
     await createProductTimeCapsule();
     const owner = await createUser('owner');
     const participant = await createUser('participant');
@@ -251,33 +251,39 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     // 슬롯 확인
     expect(body.slots).toHaveLength(3);
 
-    // 슬롯 1 (작성됨) - 잠김이므로 content/media_items 숨김
+    // 슬롯 1 (작성됨) - 잠김이므로 content/미디어 숨김
     expect(body.slots[0].user_id).toBe(owner.id);
     expect(body.slots[0].nickname).toBe('owner');
     expect(body.slots[0].entry_id).toBeTruthy();
     expect(body.slots[0].wrote_at).toBeTruthy();
     expect(body.slots[0].content).toBeNull(); // ⚠️ 숨김
-    expect(body.slots[0].media_items).toEqual([]); // ⚠️ 숨김
+    expect(body.slots[0].images_ids).toEqual([]); // ⚠️ 숨김
+    expect(body.slots[0].audio_id).toBeNull(); // ⚠️ 숨김
+    expect(body.slots[0].video_id).toBeNull(); // ⚠️ 숨김
 
-    // 슬롯 2 (작성됨) - 잠김이므로 content/media_items 숨김
+    // 슬롯 2 (작성됨) - 잠김이므로 content/미디어 숨김
     expect(body.slots[1].user_id).toBe(participant.id);
     expect(body.slots[1].nickname).toBe('participant');
     expect(body.slots[1].entry_id).toBeTruthy();
     expect(body.slots[1].wrote_at).toBeTruthy();
     expect(body.slots[1].content).toBeNull(); // ⚠️ 숨김
-    expect(body.slots[1].media_items).toEqual([]); // ⚠️ 숨김
+    expect(body.slots[1].images_ids).toEqual([]); // ⚠️ 숨김
+    expect(body.slots[1].audio_id).toBeNull(); // ⚠️ 숨김
+    expect(body.slots[1].video_id).toBeNull(); // ⚠️ 숨김
 
     // 슬롯 3 (빈 슬롯)
     expect(body.slots[2].user_id).toBeNull();
     expect(body.slots[2].entry_id).toBeNull();
     expect(body.slots[2].content).toBeNull();
-    expect(body.slots[2].media_items).toEqual([]);
+    expect(body.slots[2].images_ids).toEqual([]);
+    expect(body.slots[2].audio_id).toBeNull();
+    expect(body.slots[2].video_id).toBeNull();
 
     await cleanupUser(owner.id);
     await cleanupUser(participant.id);
   });
 
-  test('🔓 열린 캡슐: 모든 content와 media_items 표시됨', async () => {
+  test('🔓 열린 캡슐: 모든 content와 미디어 표시됨', async () => {
     await createProductTimeCapsule();
     const owner = await createUser('owner2');
     const participant = await createUser('participant2');
@@ -328,32 +334,34 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     // 슬롯 확인
     expect(body.slots).toHaveLength(3);
 
-    // 슬롯 1 (작성됨) - 열림이므로 content/media_items 표시
+    // 슬롯 1 (작성됨) - 열림이므로 content/미디어 표시
     expect(body.slots[0].user_id).toBe(owner.id);
     expect(body.slots[0].nickname).toBe('owner2');
     expect(body.slots[0].entry_id).toBeTruthy();
     expect(body.slots[0].wrote_at).toBeTruthy();
     expect(body.slots[0].content).toBe('오너의 비밀 메시지'); // ✅ 표시
-    expect(body.slots[0].media_items).toHaveLength(1); // ✅ 표시
-    expect(body.slots[0].media_items[0].media_id).toBe(mediaId1);
-    expect(body.slots[0].media_items[0].type).toBe('IMAGE');
-    expect(body.slots[0].media_items[0].object_key).toBeTruthy();
+    expect(body.slots[0].images_ids).toHaveLength(1); // ✅ 표시
+    expect(body.slots[0].images_ids[0]).toBe(mediaId1);
+    expect(body.slots[0].audio_id).toBeNull();
+    expect(body.slots[0].video_id).toBeNull();
 
-    // 슬롯 2 (작성됨) - 열림이므로 content/media_items 표시
+    // 슬롯 2 (작성됨) - 열림이므로 content/미디어 표시
     expect(body.slots[1].user_id).toBe(participant.id);
     expect(body.slots[1].nickname).toBe('participant2');
     expect(body.slots[1].entry_id).toBeTruthy();
     expect(body.slots[1].wrote_at).toBeTruthy();
     expect(body.slots[1].content).toBe('참여자의 추억'); // ✅ 표시
-    expect(body.slots[1].media_items).toHaveLength(1); // ✅ 표시
-    expect(body.slots[1].media_items[0].media_id).toBe(mediaId2);
-    expect(body.slots[1].media_items[0].type).toBe('AUDIO');
+    expect(body.slots[1].images_ids).toEqual([]);
+    expect(body.slots[1].audio_id).toBe(mediaId2); // ✅ 표시
+    expect(body.slots[1].video_id).toBeNull();
 
     // 슬롯 3 (빈 슬롯)
     expect(body.slots[2].user_id).toBeNull();
     expect(body.slots[2].entry_id).toBeNull();
     expect(body.slots[2].content).toBeNull();
-    expect(body.slots[2].media_items).toEqual([]);
+    expect(body.slots[2].images_ids).toEqual([]);
+    expect(body.slots[2].audio_id).toBeNull();
+    expect(body.slots[2].video_id).toBeNull();
 
     await cleanupUser(owner.id);
     await cleanupUser(participant.id);
@@ -389,7 +397,9 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     expect(body.slots).toHaveLength(2);
     expect(body.slots[0].user_id).toBeNull();
     expect(body.slots[0].content).toBeNull();
-    expect(body.slots[0].media_items).toEqual([]);
+    expect(body.slots[0].images_ids).toEqual([]);
+    expect(body.slots[0].audio_id).toBeNull();
+    expect(body.slots[0].video_id).toBeNull();
 
     await cleanupUser(owner.id);
   });
