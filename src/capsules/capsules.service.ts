@@ -1127,13 +1127,22 @@ export class CapsulesService {
 
     await this.logCapsuleAccess(capsule.id, user.id);
 
+    // 잠금 상태 계산: openAt이 현재 시간보다 미래면 잠김
+    const isLocked =
+      capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
+
+    // 슬롯 통계 계산
+    const filledSlots = slots.filter((slot) => slot.userId !== null).length;
+    const emptySlots = headcount - filledSlots;
+
     return {
       id: capsule.id,
       title: capsule.title,
       description: capsule.content,
       open_at: capsule.openAt,
-      is_locked: capsule.isLocked,
+      is_locked: isLocked,
       headcount,
+      created_at: capsule.createdAt,
       product: product
         ? {
             id: product.id,
@@ -1152,10 +1161,18 @@ export class CapsulesService {
           profile_img: slot.user?.profileImg ?? null,
           entry_id: entry?.id ?? null,
           wrote_at: entry?.createdAt ?? null,
-          content: entry?.content ?? null,
-          media_items: this.buildEntryMediaItems(entry, mediaMap),
+          // 🔒 잠겨있으면 content와 media_items를 숨김
+          content: isLocked ? null : (entry?.content ?? null),
+          media_items: isLocked
+            ? []
+            : this.buildEntryMediaItems(entry, mediaMap),
         };
       }),
+      stats: {
+        total_slots: headcount,
+        filled_slots: filledSlots,
+        empty_slots: emptySlots,
+      },
     };
   }
 
