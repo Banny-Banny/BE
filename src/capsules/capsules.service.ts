@@ -1081,54 +1081,6 @@ export class CapsulesService {
   /**
    * Entry의 미디어를 타입별로 분리하여 반환
    */
-  private buildEntryMediaByType(
-    entry: CapsuleEntry | null,
-    mediaMap: Map<string, Media>,
-  ) {
-    const result = {
-      images_ids: [] as Array<{ media_id: string; object_key: string | null }>,
-      audio_id: null as { media_id: string; object_key: string | null } | null,
-      video_id: null as { media_id: string; object_key: string | null } | null,
-    };
-
-    if (!entry || !entry.mediaItemIds || entry.mediaItemIds.length === 0) {
-      return result;
-    }
-
-    entry.mediaItemIds.forEach((id, idx) => {
-      const media = mediaMap.get(id);
-      const mediaType = media?.type ?? entry.mediaTypes?.[idx] ?? null;
-      const objectKey = media?.objectKey ?? null;
-
-      if (mediaType === MediaType.IMAGE) {
-        result.images_ids.push({
-          media_id: id,
-          object_key: objectKey,
-        });
-      } else if (
-        mediaType === MediaType.AUDIO ||
-        mediaType === MediaType.MUSIC
-      ) {
-        // AUDIO와 MUSIC(deprecated) 모두 처리
-        if (!result.audio_id) {
-          result.audio_id = {
-            media_id: id,
-            object_key: objectKey,
-          };
-        }
-      } else if (mediaType === MediaType.VIDEO) {
-        if (!result.video_id) {
-          result.video_id = {
-            media_id: id,
-            object_key: objectKey,
-          };
-        }
-      }
-    });
-
-    return result;
-  }
-
   /**
    * 캡슐 조회 로그 기록 (공통 메서드)
    * @public - 다른 서비스에서도 사용 가능
@@ -1154,20 +1106,21 @@ export class CapsulesService {
       relations: { user: true },
       order: { slotIndex: 'ASC' },
     });
-    const entries = await this.entryRepository.find({
-      where: { capsuleId: capsule.id },
-      relations: { user: true, slot: true },
-      order: { createdAt: 'ASC' },
-    });
 
-    const entryMap = new Map<string, CapsuleEntry>();
+    // 슬롯에서 직접 미디어 ID 수집
     const mediaIds: string[] = [];
-    entries.forEach((entry) => {
-      entryMap.set(entry.slotId, entry);
-      if (entry.mediaItemIds) {
-        mediaIds.push(...entry.mediaItemIds);
+    slots.forEach((slot) => {
+      if (slot.imageIds) {
+        mediaIds.push(...slot.imageIds);
+      }
+      if (slot.musicId) {
+        mediaIds.push(slot.musicId);
+      }
+      if (slot.videoId) {
+        mediaIds.push(slot.videoId);
       }
     });
+
     const mediaEntities =
       mediaIds.length > 0
         ? await this.mediaRepository.find({
@@ -1203,10 +1156,29 @@ export class CapsulesService {
           }
         : null,
       slots: slots.map((slot) => {
-        const entry = entryMap.get(slot.id) ?? null;
-        const mediaByType = isLocked
-          ? { images_ids: [], audio_id: null, video_id: null }
-          : this.buildEntryMediaByType(entry, mediaMap);
+        // 슬롯에서 직접 미디어 데이터 구성
+        const images_ids = isLocked
+          ? []
+          : (slot.imageIds || []).map((id) => ({
+              media_id: id,
+              object_key: mediaMap.get(id)?.objectKey ?? null,
+            }));
+
+        const audio_id =
+          isLocked || !slot.musicId
+            ? null
+            : {
+                media_id: slot.musicId,
+                object_key: mediaMap.get(slot.musicId)?.objectKey ?? null,
+              };
+
+        const video_id =
+          isLocked || !slot.videoId
+            ? null
+            : {
+                media_id: slot.videoId,
+                object_key: mediaMap.get(slot.videoId)?.objectKey ?? null,
+              };
 
         return {
           slot_id: slot.id,
@@ -1214,13 +1186,13 @@ export class CapsulesService {
           user_id: slot.userId,
           nickname: slot.user?.nickname ?? null,
           profile_img: slot.user?.profileImg ?? null,
-          entry_id: entry?.id ?? null,
-          wrote_at: entry?.createdAt ?? null,
+          entry_id: null, // capsule_entries 테이블을 사용하지 않으므로 null
+          wrote_at: slot.status === 'COMPLETED' ? slot.updatedAt : null,
           // 🔒 잠겨있으면 content와 미디어를 숨김
-          content: isLocked ? null : (entry?.content ?? null),
-          images_ids: mediaByType.images_ids,
-          audio_id: mediaByType.audio_id,
-          video_id: mediaByType.video_id,
+          content: isLocked ? null : (slot.textMessage ?? null),
+          images_ids,
+          audio_id,
+          video_id,
         };
       }),
       stats: {
