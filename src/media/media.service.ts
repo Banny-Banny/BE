@@ -13,7 +13,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MediaType } from '../common/enums';
-import { Media, User } from '../entities';
+import { Media, User, CapsuleParticipantSlot } from '../entities';
 import { PresignMediaDto } from './dto/presign-media.dto';
 import { CompleteMediaDto } from './dto/complete-media.dto';
 import { randomUUID } from 'crypto';
@@ -47,6 +47,8 @@ export class MediaService {
   constructor(
     @InjectRepository(Media)
     private readonly mediaRepo: Repository<Media>,
+    @InjectRepository(CapsuleParticipantSlot)
+    private readonly slotRepo: Repository<CapsuleParticipantSlot>,
     private readonly configService: ConfigService,
   ) {
     this.bucket = this.configService.get<string>('S3_BUCKET', '');
@@ -173,13 +175,60 @@ export class MediaService {
   }
 
   async getSignedUrl(user: User, mediaId: string) {
+    // 1. 미디어 조회 (소유자 제한 없이)
     const media = await this.mediaRepo.findOne({
-      where: { id: mediaId, userId: user.id },
+      where: { id: mediaId },
     });
     if (!media) {
       throw new NotFoundException('MEDIA_NOT_FOUND');
     }
 
+    // 2. 권한 체크: 자신의 미디어인 경우
+    if (media.userId === user.id) {
+      const command = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: media.objectKey,
+      });
+
+      const url = await getSignedUrl(this.s3, command, {
+        expiresIn: this.signedUrlTtl,
+      });
+
+      return {
+        url,
+        expires_in: this.signedUrlTtl,
+      };
+    }
+
+    // 3. 권한 체크: 같은 캡슐 참여자인 경우
+    // 미디어가 속한 캡슐의 슬롯 찾기
+    const mediaSlot = await this.slotRepo
+      .createQueryBuilder('slot')
+      .where(
+        '(:mediaId = ANY(slot.image_ids) OR slot.music_id = :mediaId OR slot.video_id = :mediaId)',
+        { mediaId },
+      )
+      .getOne();
+
+    if (!mediaSlot) {
+      // 미디어가 어떤 캡슐에도 속하지 않음 -> 접근 불가
+      throw new NotFoundException('MEDIA_NOT_FOUND');
+    }
+
+    // 요청 사용자가 같은 캡슐의 참여자인지 확인
+    const userSlot = await this.slotRepo.findOne({
+      where: {
+        capsuleId: mediaSlot.capsuleId,
+        userId: user.id,
+      },
+    });
+
+    if (!userSlot) {
+      // 같은 캡슐의 참여자가 아님 -> 접근 불가
+      throw new NotFoundException('MEDIA_NOT_FOUND');
+    }
+
+    // 4. 권한이 있음 -> presigned URL 반환
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: media.objectKey,
