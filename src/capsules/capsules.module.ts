@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-import { CapsulesController } from './capsules.controller';
+import {
+  CapsulesController,
+  TimecapsulesController,
+} from './capsules.controller';
 import { CapsuleEntriesController } from './capsule-entries.controller';
 import { CapsulesStepRoomController } from './capsules-step-room.controller';
 import { CapsulesService } from './capsules.service';
@@ -43,6 +46,7 @@ import { PushNotificationService } from '../common/services/push-notification.se
     CapsulesController,
     CapsuleEntriesController,
     CapsulesStepRoomController,
+    TimecapsulesController,
   ],
   providers: [
     CapsulesService,

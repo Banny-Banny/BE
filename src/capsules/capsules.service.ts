@@ -1740,4 +1740,130 @@ export class CapsulesService {
       })
       .filter((type): type is MediaType => type !== null);
   }
+
+  /**
+   * 타임캡슐 조회 (토큰 없이 참여자 확인)
+   * @param capsuleId 캡슐 ID
+   * @param userId 사용자 ID
+   * @returns 타임캡슐 상세 정보 (모든 참여자 데이터 포함)
+   */
+  async getTimecapsuleForParticipant(capsuleId: string, userId: string) {
+    // 1. 캡슐 조회
+    const { capsule, product, headcount } =
+      await this.ensurePaidCapsuleContext(capsuleId);
+
+    // 2. 슬롯 생성 확인
+    await this.ensureSlotsCreated(capsule.id, headcount);
+
+    // 3. 참여자 확인
+    const participantSlot = await this.slotRepository.findOne({
+      where: { capsuleId: capsule.id, userId },
+    });
+
+    if (!participantSlot) {
+      throw new ForbiddenException('NOT_PARTICIPANT');
+    }
+
+    // 4. 모든 슬롯 조회 (참여자이므로 모든 데이터 접근 가능)
+    const slots = await this.slotRepository.find({
+      where: { capsuleId: capsule.id },
+      relations: { user: true },
+      order: { slotIndex: 'ASC' },
+    });
+
+    // 5. 슬롯에서 미디어 ID 수집
+    const mediaIds: string[] = [];
+    slots.forEach((slot) => {
+      if (slot.imageIds) {
+        mediaIds.push(...slot.imageIds);
+      }
+      if (slot.musicId) {
+        mediaIds.push(slot.musicId);
+      }
+      if (slot.videoId) {
+        mediaIds.push(slot.videoId);
+      }
+    });
+
+    const mediaEntities =
+      mediaIds.length > 0
+        ? await this.mediaRepository.find({
+            where: { id: In(Array.from(new Set(mediaIds))) },
+          })
+        : [];
+    const mediaMap = new Map(mediaEntities.map((m) => [m.id, m] as const));
+
+    // 6. 조회 로그 기록
+    await this.logCapsuleAccess(capsule.id, userId);
+
+    // 7. 잠금 상태 계산
+    const isLocked =
+      capsule.openAt !== null && capsule.openAt.getTime() > Date.now();
+
+    // 8. 슬롯 통계 계산
+    const filledSlots = slots.filter((slot) => slot.userId !== null).length;
+    const emptySlots = headcount - filledSlots;
+
+    return {
+      id: capsule.id,
+      title: capsule.title,
+      description: capsule.content,
+      open_at: capsule.openAt,
+      is_locked: isLocked,
+      headcount,
+      created_at: capsule.createdAt,
+      product: product
+        ? {
+            id: product.id,
+            product_type: product.productType,
+            max_media_count: product.maxMediaCount,
+            media_types: product.mediaTypes,
+          }
+        : null,
+      slots: slots.map((slot) => {
+        // 🔒 잠겨있으면 content와 미디어를 숨김
+        const images_ids = isLocked
+          ? []
+          : (slot.imageIds || []).map((id) => ({
+              media_id: id,
+              object_key: mediaMap.get(id)?.objectKey ?? null,
+            }));
+
+        const audio_id =
+          isLocked || !slot.musicId
+            ? null
+            : {
+                media_id: slot.musicId,
+                object_key: mediaMap.get(slot.musicId)?.objectKey ?? null,
+              };
+
+        const video_id =
+          isLocked || !slot.videoId
+            ? null
+            : {
+                media_id: slot.videoId,
+                object_key: mediaMap.get(slot.videoId)?.objectKey ?? null,
+              };
+
+        return {
+          slot_id: slot.id,
+          slot_index: slot.slotIndex,
+          user_id: slot.userId,
+          nickname: slot.user?.nickname ?? null,
+          profile_img: slot.user?.profileImg ?? null,
+          entry_id: null,
+          wrote_at: slot.status === 'COMPLETED' ? slot.updatedAt : null,
+          content: isLocked ? null : (slot.textMessage ?? null),
+          images_ids,
+          audio_id,
+          video_id,
+        };
+      }),
+      stats: {
+        total_slots: headcount,
+        filled_slots: filledSlots,
+        empty_slots: emptySlots,
+      },
+    };
+  }
 }
