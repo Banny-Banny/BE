@@ -9,6 +9,9 @@ export enum NotificationType {
   /** 친구 추가 알림 (요청/수락 통합) */
   FRIEND_ADD = 'FRIEND_ADD',
 
+  /** 친구 요청 알림 (레거시, FRIEND_ADD로 통합 예정) */
+  FRIEND_REQUEST = 'FRIEND_REQUEST',
+
   /** 친구 요청 수락 알림 */
   FRIEND_ACCEPTED = 'FRIEND_ACCEPTED',
 

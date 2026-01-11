@@ -152,6 +152,30 @@ export class User {
 
   @Column({
     type: 'boolean',
+    default: false,
+    name: 'is_friend_consent_agreed',
+    comment: '친구 연동 기능 사용 동의 (온보딩)',
+  })
+  isFriendConsentAgreed: boolean;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    name: 'is_location_consent_agreed',
+    comment: '실제 디바이스 위치 권한 허용 여부 (온보딩)',
+  })
+  isLocationConsentAgreed: boolean;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'onboarding_completed_at',
+    comment: '온보딩 완료 시점',
+  })
+  onboardingCompletedAt: Date | null;
+
+  @Column({
+    type: 'boolean',
     default: true,
     name: 'is_active',
     comment: 'True: 활동중, False: 탈퇴/정지',

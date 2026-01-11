@@ -9,6 +9,7 @@ import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { MediaModule } from './media/media.module';
 import { MeModule } from './me/me.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 @Module({
   imports: [
@@ -28,6 +29,8 @@ import { MeModule } from './me/me.module';
     MediaModule,
     // 마이페이지 모듈
     MeModule,
+    // 온보딩 모듈
+    OnboardingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

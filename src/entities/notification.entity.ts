@@ -43,6 +43,7 @@ export class Notification {
   @Column({
     type: 'enum',
     enum: NotificationType,
+    enumName: 'notification_type_enum', // 기존 마이그레이션과 동일한 enum 이름 사용
     comment:
       '알림 타입: CAPSULE_OPEN, FRIEND_ADD, FRIEND_ACCEPTED, EGG_DISCOVERED, EASTER_EGG_VIEWED, EGG_DELETED, SYSTEM, MARKETING',
   })
