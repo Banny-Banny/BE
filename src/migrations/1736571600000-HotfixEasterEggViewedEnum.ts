@@ -4,9 +4,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 핫픽스: EASTER_EGG_VIEWED enum 값 추가
  * 배포 환경에서 누락된 enum 값을 추가하는 핫픽스 마이그레이션
  */
-export class HotfixEasterEggViewedEnum1736571600000
-  implements MigrationInterface
-{
+export class HotfixEasterEggViewedEnum1736571600000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // EASTER_EGG_VIEWED enum 값이 없으면 추가
     await queryRunner.query(`
@@ -74,15 +72,12 @@ export class HotfixEasterEggViewedEnum1736571600000
     `);
   }
 
-  public async down(queryRunner: QueryRunner): Promise<void> {
+  public down(): Promise<void> {
     // enum 값 제거는 복잡하므로 down 마이그레이션은 생략
     // 필요시 enum 타입 재생성 필요
-    this.logger.warn(
-      '이 마이그레이션의 rollback은 지원되지 않습니다. enum 값은 수동으로 제거해야 합니다.',
+    console.warn(
+      '[Migration] 이 마이그레이션의 rollback은 지원되지 않습니다. enum 값은 수동으로 제거해야 합니다.',
     );
+    return Promise.resolve();
   }
-
-  private logger = {
-    warn: (message: string) => console.warn(`[Migration] ${message}`),
-  };
 }
