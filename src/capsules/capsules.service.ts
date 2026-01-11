@@ -1389,17 +1389,19 @@ export class CapsulesService {
     // 2. 전체 슬롯 수는 항상 DEFAULT_EGG_SLOTS (3)으로 고정
     const totalSlots = this.DEFAULT_EGG_SLOTS;
 
-    // 3. 사용 중인 슬롯 수 (삭제되지 않은 캡슐 개수)
-    const usedSlots = await this.capsuleRepository.count({
+    // 3. 실제 캡슐 개수 조회 (삭제되지 않은 캡슐 개수)
+    const actualCapsuleCount = await this.capsuleRepository.count({
       where: {
         userId,
         deletedAt: IsNull(),
       },
     });
 
-    // 4. 남은 슬롯 수 = 전체 슬롯 - 사용 중인 슬롯
-    // 공식: totalSlots = usedSlots + remainingSlots
-    const remainingSlots = totalSlots - usedSlots;
+    // 4. usedSlots는 totalSlots를 초과할 수 없음
+    const usedSlots = Math.min(actualCapsuleCount, totalSlots);
+
+    // 5. remainingSlots는 음수가 될 수 없음
+    const remainingSlots = Math.max(0, totalSlots - actualCapsuleCount);
 
     return {
       totalSlots,
