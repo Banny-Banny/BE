@@ -9,7 +9,7 @@ export class AddOnboardingFields1736611200000 implements MigrationInterface {
     // 1. 친구 연동 동의 컬럼 추가
     await queryRunner.query(`
       ALTER TABLE users
-      ADD COLUMN is_friend_consent_agreed BOOLEAN NOT NULL DEFAULT false
+      ADD COLUMN IF NOT EXISTS is_friend_consent_agreed BOOLEAN NOT NULL DEFAULT false
     `);
 
     await queryRunner.query(`
@@ -19,7 +19,7 @@ export class AddOnboardingFields1736611200000 implements MigrationInterface {
     // 2. 위치 권한 동의 컬럼 추가
     await queryRunner.query(`
       ALTER TABLE users
-      ADD COLUMN is_location_consent_agreed BOOLEAN NOT NULL DEFAULT false
+      ADD COLUMN IF NOT EXISTS is_location_consent_agreed BOOLEAN NOT NULL DEFAULT false
     `);
 
     await queryRunner.query(`
@@ -29,7 +29,7 @@ export class AddOnboardingFields1736611200000 implements MigrationInterface {
     // 3. 온보딩 완료 시점 컬럼 추가
     await queryRunner.query(`
       ALTER TABLE users
-      ADD COLUMN onboarding_completed_at TIMESTAMP NULL
+      ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMP NULL
     `);
 
     await queryRunner.query(`
@@ -41,17 +41,17 @@ export class AddOnboardingFields1736611200000 implements MigrationInterface {
     // 컬럼 삭제 (역순)
     await queryRunner.query(`
       ALTER TABLE users
-      DROP COLUMN onboarding_completed_at
+      DROP COLUMN IF EXISTS onboarding_completed_at
     `);
 
     await queryRunner.query(`
       ALTER TABLE users
-      DROP COLUMN is_location_consent_agreed
+      DROP COLUMN IF EXISTS is_location_consent_agreed
     `);
 
     await queryRunner.query(`
       ALTER TABLE users
-      DROP COLUMN is_friend_consent_agreed
+      DROP COLUMN IF EXISTS is_friend_consent_agreed
     `);
   }
 }
