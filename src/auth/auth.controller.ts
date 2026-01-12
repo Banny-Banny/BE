@@ -115,8 +115,7 @@ export class AuthController {
       process.env.FRONTEND_CALLBACK_PATH || '/api/auth/kakao/callback';
     const webCallback = `${fallbackBase.replace(/\/$/, '')}${fallbackPath}`;
     const mobileCallback =
-      process.env.AUTH_CALLBACK_REDIRECT_URL ||
-      'timeegg://auth/callback?token=${accessToken}&isNewUser=${user.isNewUser}';
+      process.env.AUTH_CALLBACK_REDIRECT_URL || 'timeegg://auth/callback';
 
     const requestedFrontendCallback = (
       req.query.redirect_uri as string | undefined
