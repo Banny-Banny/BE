@@ -285,6 +285,35 @@ export class MeService {
               : 0;
         }
 
+        // 위치 정보 (latitude, longitude가 모두 있을 때만)
+        let location:
+          | { latitude: number; longitude: number }
+          | null
+          | undefined = undefined;
+        if (
+          capsule.latitude !== null &&
+          capsule.latitude !== undefined &&
+          capsule.longitude !== null &&
+          capsule.longitude !== undefined
+        ) {
+          location = {
+            latitude: Number(capsule.latitude),
+            longitude: Number(capsule.longitude),
+          };
+        }
+
+        // 참여자 목록 조회
+        const participantSlots = await this.slotRepository.find({
+          where: { capsuleId: capsule.id },
+          select: ['nickname'],
+        });
+
+        const participants = participantSlots
+          .filter((slot) => slot.nickname) // nickname이 있는 것만
+          .map((slot) => ({
+            nickname: slot.nickname!,
+          }));
+
         return new CapsuleListItemDto({
           id: capsule.id,
           title: capsule.title,
@@ -296,6 +325,9 @@ export class MeService {
           deadline,
           completedCount,
           progressPercentage,
+          location,
+          buriedAt: capsule.buriedAt || null,
+          participants: participants.length > 0 ? participants : undefined,
         });
       }),
     );

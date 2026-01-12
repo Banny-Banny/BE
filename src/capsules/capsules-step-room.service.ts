@@ -854,6 +854,7 @@ export class CapsulesStepRoomService {
       max_images_per_person: maxImagesPerPerson,
       has_music: order.addMusic,
       has_video: order.addVideo,
+      invite_code: capsule.inviteCode || '',
     };
   }
 

@@ -562,20 +562,17 @@ export class CapsulesController {
 }
 
 @ApiTags('Timecapsules')
+@ApiBearerAuth('access-token')
 @Controller('timecapsules')
 export class TimecapsulesController {
   constructor(private readonly capsulesService: CapsulesService) {}
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary: '타임캡슐 조회 (토큰 없이 참여자 확인)',
+    summary: '타임캡슐 조회 (JWT 인증)',
     description:
-      '타임캡슐 참여자라면 user_id 쿼리 파라미터로 접근 가능합니다. 모든 참여자의 데이터를 조회할 수 있습니다.',
-  })
-  @ApiQuery({
-    name: 'user_id',
-    required: true,
-    description: '조회하려는 사용자 ID',
+      '타임캡슐 참여자라면 접근 가능합니다. JWT 토큰으로 사용자를 인증하고, 모든 참여자의 데이터를 조회할 수 있습니다.',
   })
   @ApiResponse({
     status: 200,
@@ -605,9 +602,7 @@ export class TimecapsulesController {
             entry_id: null,
             wrote_at: '2025-01-02T00:00:00.000Z',
             content: 'Hello!',
-            images_ids: [
-              { media_id: 'uuid', object_key: 'media/...' },
-            ],
+            images_ids: [{ media_id: 'uuid', object_key: 'media/...' }],
             audio_id: { media_id: 'uuid', object_key: 'media/...' },
             video_id: null,
           },
@@ -621,12 +616,16 @@ export class TimecapsulesController {
     },
   })
   @ApiResponse({ status: 400, description: '잘못된 요청' })
+  @ApiResponse({ status: 401, description: '인증 실패' })
   @ApiResponse({ status: 403, description: '참여자가 아님' })
   @ApiResponse({ status: 404, description: '캡슐 미존재/삭제' })
   async getTimecapsule(
+    @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) capsuleId: string,
-    @Query('user_id', ParseUUIDPipe) userId: string,
   ) {
-    return this.capsulesService.getTimecapsuleForParticipant(capsuleId, userId);
+    return this.capsulesService.getTimecapsuleForParticipant(
+      capsuleId,
+      user.id,
+    );
   }
 }

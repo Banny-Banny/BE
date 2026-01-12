@@ -68,6 +68,39 @@ export class CapsuleListItemDto {
   })
   progressPercentage?: number | null;
 
+  @ApiProperty({
+    description: '캡슐 위치 정보 (위도, 경도)',
+    example: { latitude: 37.5665, longitude: 126.978 },
+    nullable: true,
+    required: false,
+  })
+  location?: {
+    latitude: number;
+    longitude: number;
+  } | null;
+
+  @ApiProperty({
+    description: '캡슐이 매장(제출)된 날짜',
+    example: '2025-01-05T10:30:00.000Z',
+    nullable: true,
+    required: false,
+  })
+  buriedAt?: Date | null;
+
+  @ApiProperty({
+    description: '함께 묻은 참여자 목록',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        nickname: { type: 'string', example: '홍길동' },
+      },
+    },
+    example: [{ nickname: '홍길동' }, { nickname: '김철수' }],
+    required: false,
+  })
+  participants?: Array<{ nickname: string }>;
+
   constructor(partial: Partial<CapsuleListItemDto>) {
     Object.assign(this, partial);
   }

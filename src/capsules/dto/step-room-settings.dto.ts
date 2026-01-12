@@ -46,4 +46,10 @@ export class StepRoomSettingsResponseDto {
     example: true,
   })
   has_video: boolean;
+
+  @ApiProperty({
+    description: '대기실 초대 코드 (6자리)',
+    example: 'R2Q6VZ',
+  })
+  invite_code: string;
 }
