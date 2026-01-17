@@ -10,13 +10,13 @@ import {
   OneToOne,
   Check,
 } from 'typeorm';
-import { MediaType, RoomStatus } from '../common/enums';
+import { MediaType, CapsuleType } from '../common/enums';
 import { User } from './user.entity';
-import { Product } from './product.entity';
 import { CapsuleAccessLog } from './capsule-access-log.entity';
 import { CapsuleParticipantSlot } from './capsule-participant-slot.entity';
 import { CapsuleEntry } from './capsule-entry.entity';
-import { Order } from './order.entity';
+import { TimeCapsule } from './time-capsule.entity';
+import { EasterEgg } from './easter-egg.entity';
 
 /**
  * 서비스의 핵심 테이블
@@ -34,21 +34,13 @@ export class Capsule {
   userId: string;
 
   @Column({
-    type: 'uuid',
-    name: 'product_id',
-    nullable: true,
-    comment: '유료 스킨/기능 사용 시 연결, 무료면 NULL',
+    type: 'enum',
+    enum: CapsuleType,
+    name: 'capsule_type',
+    default: CapsuleType.EASTER_EGG,
+    comment: '캡슐 타입 (TIME_CAPSULE / EASTER_EGG)',
   })
-  productId: string | null;
-
-  @Column({
-    type: 'uuid',
-    name: 'order_id',
-    nullable: true,
-    unique: true,
-    comment: '결제 주문 연계 (주문당 1캡슐)',
-  })
-  orderId: string | null;
+  capsuleType: CapsuleType;
 
   // 위치 정보
   @Column({
@@ -127,82 +119,6 @@ export class Capsule {
       }[]
     | null;
 
-  // 핵심 로직 (시간 & 수량)
-  @Column({
-    type: 'timestamp',
-    nullable: true,
-    name: 'open_at',
-    comment: '개봉 예정일. 이 시간이 지나야 is_locked 해제 가능',
-  })
-  openAt: Date | null;
-
-  @Column({
-    type: 'boolean',
-    default: true,
-    name: 'is_locked',
-    comment: 'App 표시용 플래그. open_at 비교 후 서버에서 업데이트',
-  })
-  isLocked: boolean;
-
-  @Column({
-    type: 'int',
-    default: 0,
-    name: 'view_limit',
-    comment: '선착순 인원 제한 (이스터에그용). 0이면 무제한',
-  })
-  viewLimit: number;
-
-  @Column({
-    type: 'int',
-    default: 0,
-    name: 'view_count',
-    comment: '현재까지 열람한 인원 수. view_limit 도달 시 마감',
-  })
-  viewCount: number;
-
-  // 대기실 필드 (결제 완료 후 작성 대기 중인 캡슐)
-  @Column({
-    type: 'varchar',
-    length: 6,
-    unique: true,
-    nullable: true,
-    name: 'invite_code',
-    comment: '대기실 초대 코드 (결제 완료 후 생성)',
-  })
-  inviteCode: string | null;
-
-  @Column({
-    type: 'timestamp',
-    nullable: true,
-    comment: '대기실 마감시한 (결제 완료 + 24시간)',
-  })
-  deadline: Date | null;
-
-  @Column({
-    type: 'enum',
-    enum: RoomStatus,
-    nullable: true,
-    name: 'room_status',
-    comment: '대기실 상태 (nullable: 대기실 없음)',
-  })
-  roomStatus: RoomStatus | null;
-
-  @Column({
-    type: 'timestamp',
-    nullable: true,
-    name: 'buried_at',
-    comment: '캡슐이 매장된 시각',
-  })
-  buriedAt: Date | null;
-
-  @Column({
-    type: 'boolean',
-    default: false,
-    name: 'is_auto_submitted',
-    comment: '자동 제출 여부',
-  })
-  isAutoSubmitted: boolean;
-
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
@@ -218,15 +134,11 @@ export class Capsule {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @ManyToOne(() => Product, (product) => product.capsules, {
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'product_id' })
-  product: Product;
+  @OneToOne(() => TimeCapsule, (timeCapsule) => timeCapsule.capsule)
+  timeCapsule: TimeCapsule | null;
 
-  @OneToOne(() => Order, (order) => order.capsule, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'order_id' })
-  order: Order | null;
+  @OneToOne(() => EasterEgg, (easterEgg) => easterEgg.capsule)
+  easterEgg: EasterEgg | null;
 
   @OneToMany(() => CapsuleAccessLog, (log) => log.capsule)
   accessLogs: CapsuleAccessLog[];

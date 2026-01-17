@@ -304,6 +304,8 @@ export class PaymentsService {
     const currentParticipants =
       await this.capsulesService.getCurrentParticipantsCount(capsule.id);
 
+    const timeCapsule = capsule.timeCapsule;
+
     return {
       order_id: order.id,
       status: OrderStatus.PAID,
@@ -312,11 +314,11 @@ export class PaymentsService {
       capsule_id: capsule.id,
       step_room: {
         room_id: capsule.id,
-        invite_code: capsule.inviteCode,
+        invite_code: timeCapsule?.inviteCode ?? null,
         capsule_name: capsule.title,
-        open_date: capsule.openAt,
-        deadline: capsule.deadline,
-        participant_count: capsule.viewLimit,
+        open_date: timeCapsule?.openAt ?? null,
+        deadline: timeCapsule?.deadline ?? null,
+        participant_count: timeCapsule?.order?.headcount ?? order.headcount,
         current_participants: currentParticipants,
         created_at: capsule.createdAt,
       },
@@ -675,6 +677,8 @@ export class PaymentsService {
       totalElapsedSec: (totalElapsedMs / 1000).toFixed(2),
     });
 
+    const timeCapsule = capsule.timeCapsule;
+
     return {
       order_id: order.id,
       payment_key: payment.paymentKey,
@@ -685,11 +689,11 @@ export class PaymentsService {
       receipt_url: payment.receiptUrl,
       step_room: {
         room_id: capsule.id,
-        invite_code: capsule.inviteCode,
+        invite_code: timeCapsule?.inviteCode ?? null,
         capsule_name: capsule.title,
-        open_date: capsule.openAt,
-        deadline: capsule.deadline,
-        participant_count: capsule.viewLimit,
+        open_date: timeCapsule?.openAt ?? null,
+        deadline: timeCapsule?.deadline ?? null,
+        participant_count: timeCapsule?.order?.headcount ?? order.headcount,
         current_participants: currentParticipants,
         created_at: capsule.createdAt,
       },

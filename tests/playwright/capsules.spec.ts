@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import 'reflect-metadata';
 import dotenv from 'dotenv';
 import { test, expect, request, APIRequestContext } from '@playwright/test';
@@ -20,8 +23,7 @@ const DB_CONFIG = {
     'banny_banny_test',
 };
 
-const JWT_SECRET =
-  process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
+const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
 
 let api: APIRequestContext;
 let client: Client;
@@ -39,7 +41,7 @@ async function createProductEasterEgg(limit = 1) {
   return productId;
 }
 
-test.beforeAll(async ({ playwright }) => {
+test.beforeAll(async () => {
   client = new Client(DB_CONFIG);
   await client.connect();
   api = await request.newContext({
@@ -87,25 +89,28 @@ async function cleanupFriendships(a: string, b: string) {
 
 async function connectFriends(a: string, b: string) {
   await cleanupFriendships(a, b);
+  const [userId, friendId] = a < b ? [a, b] : [b, a];
   await client.query(
     `INSERT INTO friendships (id, user_id, friend_id, status) VALUES ($1, $2, $3, 'CONNECTED')`,
-    [crypto.randomUUID(), a, b],
-  );
-  await client.query(
-    `INSERT INTO friendships (id, user_id, friend_id, status) VALUES ($1, $2, $3, 'CONNECTED')`,
-    [crypto.randomUUID(), b, a],
+    [crypto.randomUUID(), userId, friendId],
   );
 }
 
-async function createCapsule(ownerId: string, productId: string | null, lat = 37.0, lng = 127.0) {
+async function createCapsule(ownerId: string, lat = 37.0, lng = 127.0) {
   const capId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, product_id, title, content, media_urls, media_types, open_at, is_locked, view_limit, view_count, latitude, longitude)
-    VALUES ($1, $2, $3, 'capsule', 'content', '{"https://cdn.example.com/1.jpg"}', '{"IMAGE"}',
-            NOW() + interval '1 day', true, 1, 0, $4, $5)
+    INSERT INTO capsules (id, user_id, capsule_type, title, content, latitude, longitude)
+    VALUES ($1, $2, 'EASTER_EGG', 'capsule', 'content', $3, $4)
     `,
-    [capId, ownerId, productId, lat, lng],
+    [capId, ownerId, lat, lng],
+  );
+  await client.query(
+    `
+    INSERT INTO easter_eggs (capsule_id, view_limit, view_count)
+    VALUES ($1, 1, 0)
+    `,
+    [capId],
   );
   return capId;
 }
@@ -114,11 +119,17 @@ async function createConsumedCapsule(ownerId: string, lat = 37.0, lng = 127.0) {
   const capId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, title, content, media_urls, media_types, open_at, is_locked, view_limit, view_count, latitude, longitude)
-    VALUES ($1, $2, 'capsule-consumed', 'content', '{"https://cdn.example.com/1.jpg"}', '{"IMAGE"}',
-            NOW() - interval '1 day', false, 1, 1, $3, $4)
+    INSERT INTO capsules (id, user_id, capsule_type, title, content, latitude, longitude)
+    VALUES ($1, $2, 'EASTER_EGG', 'capsule-consumed', 'content', $3, $4)
     `,
     [capId, ownerId, lat, lng],
+  );
+  await client.query(
+    `
+    INSERT INTO easter_eggs (capsule_id, view_limit, view_count)
+    VALUES ($1, 1, 1)
+    `,
+    [capId],
   );
   return capId;
 }
@@ -138,16 +149,12 @@ async function insertMedia(ownerId: string) {
 
 test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
   const { id, token } = await createUser(3);
-  const openAt = new Date(Date.now() + 60_000).toISOString();
 
   const res = await api.post('/api/capsules', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'e2e capsule',
       content: 'hello world',
-      media_urls: ['https://cdn.example.com/img1.jpg'],
-      media_types: ['IMAGE'],
-      open_at: openAt,
       view_limit: 1,
       latitude: 37.5665,
       longitude: 126.978,
@@ -160,7 +167,6 @@ test('캡슐 생성 성공 (201) 및 슬롯 차감', async () => {
   expect(res.status()).toBe(201);
   const body = await res.json();
   expect(body.id).toBeTruthy();
-  expect(body.media_types?.[0]).toBe('IMAGE');
 
   const { rows } = await client.query(
     'SELECT egg_slots FROM users WHERE id = $1',
@@ -175,8 +181,8 @@ test('캡슐 조회 200 (친구+위치 도달)', async () => {
   const owner = await createUser(3);
   const viewer = await createUser(3);
   await connectFriends(owner.id, viewer.id);
-  const productId = await createProductEasterEgg(1);
-  const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
+  await createProductEasterEgg(1);
+  const capId = await createCapsule(owner.id, 37.0, 127.0);
 
   const res = await api.get(`/api/capsules/${capId}?lat=37.0&lng=127.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
@@ -185,7 +191,7 @@ test('캡슐 조회 200 (친구+위치 도달)', async () => {
   expect(res.status()).toBe(200);
   const body = await res.json();
   expect(body.id).toBe(capId);
-  expect(body.product?.product_type).toBe('EASTER_EGG');
+  expect(body.product).toBeNull();
   // 작성자 정보 확인
   expect(body.author).toBeTruthy();
   expect(body.author.id).toBe(owner.id);
@@ -208,7 +214,7 @@ test('캡슐 조회 200 (친구+위치 도달)', async () => {
 test('캡슐 조회 403 (친구 아님)', async () => {
   const owner = await createUser(3);
   const viewer = await createUser(3);
-  const capId = await createCapsule(owner.id, null, 37.0, 127.0);
+  const capId = await createCapsule(owner.id, 37.0, 127.0);
 
   const res = await api.get(`/api/capsules/${capId}?lat=37.0&lng=127.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
@@ -226,7 +232,7 @@ test('캡슐 조회 403 (위치 반경 밖)', async () => {
   const owner = await createUser(3);
   const viewer = await createUser(3);
   await connectFriends(owner.id, viewer.id);
-  const capId = await createCapsule(owner.id, null, 37.0, 127.0);
+  const capId = await createCapsule(owner.id, 37.0, 127.0);
 
   const res = await api.get(`/api/capsules/${capId}?lat=38.0&lng=128.0`, {
     headers: { Authorization: `Bearer ${viewer.token}` },
@@ -264,13 +270,11 @@ test('캡슐 조회 400 (uuid 형식 오류)', async () => {
 
 test('슬롯 부족 시 409', async () => {
   const { id, token } = await createUser(0);
-  const openAt = new Date(Date.now() + 60_000).toISOString();
 
   const res = await api.post('/api/capsules', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'slot exhausted',
-      open_at: openAt,
       latitude: 37.5665,
       longitude: 126.978,
     },
@@ -284,7 +288,7 @@ test('슬롯 부족 시 409', async () => {
   await cleanupUser(id);
 });
 
-test('open_at이 과거면 400', async () => {
+test('open_at 전달 시 400', async () => {
   const { id, token } = await createUser(3);
   const past = new Date(Date.now() - 60_000).toISOString();
 
@@ -310,8 +314,8 @@ test('목록 조회 200: 반경 내 + 친구', async () => {
   const owner = await createUser(3);
   const viewer = await createUser(3);
   await connectFriends(owner.id, viewer.id);
-  const productId = await createProductEasterEgg(1);
-  const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
+  await createProductEasterEgg(1);
+  const capId = await createCapsule(owner.id, 37.0, 127.0);
 
   const res = await api.get(
     `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10`,
@@ -323,10 +327,10 @@ test('목록 조회 200: 반경 내 + 친구', async () => {
   expect(Array.isArray(body.items)).toBe(true);
   const found = body.items.find((item) => item.id === capId);
   expect(found).toBeTruthy();
-  expect(found.product.product_type).toBe('EASTER_EGG');
+  expect(found.product).toBeNull();
   expect(found.type).toBe('EASTER_EGG');
   expect(found.is_mine).toBe(false); // viewer가 조회했으므로 owner의 캡슐은 is_mine=false
-  expect(found.is_locked).toBe(true);
+  expect(found.is_locked).toBe(false);
 
   await cleanupUser(owner.id);
   await cleanupUser(viewer.id);
@@ -379,8 +383,8 @@ test('목록 조회 400: 좌표 범위/반경/limit 오류', async () => {
 
 test('목록 조회에서 본인 캡슐은 is_mine=true', async () => {
   const owner = await createUser(3);
-  const productId = await createProductEasterEgg(1);
-  const capId = await createCapsule(owner.id, productId, 37.0, 127.0);
+  await createProductEasterEgg(1);
+  const capId = await createCapsule(owner.id, 37.0, 127.0);
 
   const res = await api.get(
     `/api/capsules?lat=37.0&lng=127.0&radius_m=500&limit=10`,
@@ -398,17 +402,14 @@ test('목록 조회에서 본인 캡슐은 is_mine=true', async () => {
   await client.query('DELETE FROM capsules WHERE id = $1', [capId]);
 });
 
-test('media type가 IMAGE인데 url 없음 → 400', async () => {
+test('view_limit 음수면 400', async () => {
   const { id, token } = await createUser(3);
-  const openAt = new Date(Date.now() + 60_000).toISOString();
 
   const res = await api.post('/api/capsules', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'media mismatch',
-      media_types: ['IMAGE'],
-      media_urls: [null],
-      open_at: openAt,
+      view_limit: -1,
       latitude: 37.5665,
       longitude: 126.978,
     },
@@ -425,16 +426,15 @@ test('media type가 IMAGE인데 url 없음 → 400', async () => {
 test('EASTER_EGG 상품 max_media_count 초과시 400', async () => {
   const { id, token } = await createUser(3);
   const productId = await createProductEasterEgg(1);
-  const openAt = new Date(Date.now() + 60_000).toISOString();
+  const mediaId1 = await insertMedia(id);
+  const mediaId2 = await insertMedia(id);
 
   const res = await api.post('/api/capsules', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'product limit',
       product_id: productId,
-      media_types: ['IMAGE', 'IMAGE'], // 2개 > limit 1
-      media_urls: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'],
-      open_at: openAt,
+      media_ids: [mediaId1, mediaId2], // 2개 > limit 1
       latitude: 37.5665,
       longitude: 126.978,
     },
@@ -496,9 +496,12 @@ test('media_ids + text_blocks 조회 200 (친구)', async () => {
   expect(createRes.status()).toBe(201);
   const created = await createRes.json();
 
-  const getRes = await api.get(`/api/capsules/${created.id}?lat=37.5665&lng=126.978`, {
-    headers: { Authorization: `Bearer ${viewer.token}` },
-  });
+  const getRes = await api.get(
+    `/api/capsules/${created.id}?lat=37.5665&lng=126.978`,
+    {
+      headers: { Authorization: `Bearer ${viewer.token}` },
+    },
+  );
 
   expect(getRes.status()).toBe(200);
   const body = await getRes.json();
@@ -512,13 +515,11 @@ test('media_ids + text_blocks 조회 200 (친구)', async () => {
 
 test('이스터에그 생성 시 위도 없으면 400', async () => {
   const { id, token } = await createUser(3);
-  const openAt = new Date(Date.now() + 60_000).toISOString();
 
   const res = await api.post('/api/capsules', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'no latitude',
-      open_at: openAt,
       longitude: 126.978,
     },
   });
@@ -535,13 +536,11 @@ test('이스터에그 생성 시 위도 없으면 400', async () => {
 
 test('이스터에그 생성 시 경도 없으면 400', async () => {
   const { id, token } = await createUser(3);
-  const openAt = new Date(Date.now() + 60_000).toISOString();
 
   const res = await api.post('/api/capsules', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       title: 'no longitude',
-      open_at: openAt,
       latitude: 37.5665,
     },
   });

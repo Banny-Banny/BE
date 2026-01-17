@@ -18,6 +18,13 @@ export class ProfileResponseDto {
   nickname: string;
 
   @ApiProperty({
+    description: '이름',
+    example: '홍길동',
+    nullable: true,
+  })
+  name: string | null;
+
+  @ApiProperty({
     description: '이메일',
     example: 'user@example.com',
     nullable: true,

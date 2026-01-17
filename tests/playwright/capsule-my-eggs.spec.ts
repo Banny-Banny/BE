@@ -74,13 +74,12 @@ async function createEasterEgg(
   status: 'ACTIVE' | 'EXPIRED' = 'ACTIVE',
 ) {
   const eggId = crypto.randomUUID();
-  const openAt = new Date(Date.now() + 86400000);
   const deletedAt = status === 'EXPIRED' ? new Date() : null;
-  
+
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, title, content, latitude, longitude, view_limit, view_count, is_locked, open_at, deleted_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    INSERT INTO capsules (id, user_id, capsule_type, title, content, latitude, longitude, deleted_at)
+    VALUES ($1, $2, 'EASTER_EGG', $3, $4, $5, $6, $7)
     `,
     [
       eggId,
@@ -89,12 +88,15 @@ async function createEasterEgg(
       '테스트 콘텐츠',
       37.5665,
       126.978,
-      viewLimit,
-      0,
-      true,
-      openAt,
       deletedAt,
     ],
+  );
+  await client.query(
+    `
+    INSERT INTO easter_eggs (capsule_id, view_limit, view_count)
+    VALUES ($1, $2, 0)
+    `,
+    [eggId, viewLimit],
   );
   return eggId;
 }

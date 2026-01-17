@@ -11,9 +11,14 @@ import { DataSource, Repository, IsNull, EntityManager } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
 import { User } from '../entities/user.entity';
 import { ProductType } from '../entities/product.entity';
-import { OrderStatus, TimeOption, RoomStatus } from '../common/enums';
+import {
+  CapsuleType,
+  OrderStatus,
+  TimeOption,
+  RoomStatus,
+} from '../common/enums';
 import { MediaType } from '../common/enums';
-import { CapsuleParticipantSlot, Order } from '../entities';
+import { CapsuleParticipantSlot, Order, TimeCapsule } from '../entities';
 import {
   StepRoomResponseDto,
   StepRoomDetailDto,
@@ -24,7 +29,7 @@ import { ContentResponseDto } from './dto/content-response.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { JoinStepRoomResponseDto } from './dto/join-step-room.dto';
 import { MediaService } from '../media/media.service';
-import { CapsulesService } from './capsules.service';
+import { TimeCapsuleService } from './time-capsule.service';
 import { GetMyContentResponseDto } from './dto/get-my-content-response.dto';
 
 // Multer 파일 타입 정의
@@ -48,6 +53,8 @@ export class CapsulesStepRoomService {
   constructor(
     @InjectRepository(Capsule)
     private readonly capsuleRepository: Repository<Capsule>,
+    @InjectRepository(TimeCapsule)
+    private readonly timeCapsuleRepository: Repository<TimeCapsule>,
     @InjectRepository(CapsuleParticipantSlot)
     private readonly slotRepository: Repository<CapsuleParticipantSlot>,
     @InjectRepository(Order)
@@ -57,7 +64,7 @@ export class CapsulesStepRoomService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly mediaService: MediaService,
-    private readonly capsulesService: CapsulesService,
+    private readonly timeCapsuleService: TimeCapsuleService,
   ) {}
 
   // ==========================================
@@ -141,7 +148,8 @@ export class CapsulesStepRoomService {
       return;
     }
 
-    if (capsule.inviteCode && inviteCode === capsule.inviteCode) {
+    const timeCapsule = capsule.timeCapsule;
+    if (timeCapsule?.inviteCode && inviteCode === timeCapsule.inviteCode) {
       return;
     }
 
@@ -172,9 +180,9 @@ export class CapsulesStepRoomService {
     });
 
     const currentParticipants = slots.filter((s) => s.userId !== null).length;
-    const maxParticipants = capsule.viewLimit;
+    const maxParticipants = capsule.timeCapsule?.order?.headcount ?? 0;
 
-    if (currentParticipants >= maxParticipants) {
+    if (maxParticipants > 0 && currentParticipants >= maxParticipants) {
       throw new ForbiddenException({
         success: false,
         error: 'PARTICIPANT_LIMIT_EXCEEDED',
@@ -339,7 +347,7 @@ export class CapsulesStepRoomService {
    * 이미 제출된 캡슐인지 확인
    */
   private validateNotAlreadySubmitted(capsule: Capsule): void {
-    if (capsule.roomStatus === RoomStatus.BURIED) {
+    if (capsule.timeCapsule?.roomStatus === RoomStatus.BURIED) {
       throw new ConflictException({
         success: false,
         error: 'ALREADY_SUBMITTED',
@@ -416,6 +424,7 @@ export class CapsulesStepRoomService {
   ): Promise<SubmitCapsuleResponseDto> {
     return await this.dataSource.transaction(async (manager) => {
       const capsuleRepo = manager.getRepository(Capsule);
+      const timeCapsuleRepo = manager.getRepository(TimeCapsule);
       const slotRepo = manager.getRepository(CapsuleParticipantSlot);
 
       // 1. 모든 참여자 슬롯 데이터 조회
@@ -460,9 +469,18 @@ export class CapsulesStepRoomService {
       // 3. 캡슐 필드 업데이트
       capsule.latitude = latitude;
       capsule.longitude = longitude;
-      capsule.roomStatus = RoomStatus.BURIED;
-      capsule.buriedAt = new Date();
-      capsule.isAutoSubmitted = isAutoSubmitted;
+
+      const timeCapsule =
+        capsule.timeCapsule ||
+        (await timeCapsuleRepo.findOne({
+          where: { capsuleId: capsule.id },
+        }));
+      if (!timeCapsule) {
+        throw new NotFoundException('TIME_CAPSULE_NOT_FOUND');
+      }
+      timeCapsule.roomStatus = RoomStatus.BURIED;
+      timeCapsule.buriedAt = new Date();
+      timeCapsule.isAutoSubmitted = isAutoSubmitted;
 
       // 참여자 데이터 반영
       capsule.textBlocks = textBlocks.length > 0 ? textBlocks : null;
@@ -481,11 +499,12 @@ export class CapsulesStepRoomService {
       }
 
       await capsuleRepo.save(capsule);
+      await timeCapsuleRepo.save(timeCapsule);
 
       // TODO: 주소 변환 API 연동 (Google Maps Geocoding 등)
       const address = '서울특별시 중구 세종대로 110'; // 임시
-      const buriedAt = capsule.buriedAt || new Date();
-      const openDate = capsule.openAt || new Date();
+      const buriedAt = timeCapsule.buriedAt || new Date();
+      const openDate = timeCapsule.openAt || new Date();
 
       return {
         success: true,
@@ -530,12 +549,14 @@ export class CapsulesStepRoomService {
         );
       }
 
-      const existing = await manager.findOne(Capsule, {
+      const existing = await manager.findOne(TimeCapsule, {
         where: { orderId: orderId },
+        relations: { capsule: true },
       });
 
-      if (existing) {
-        return existing;
+      if (existing?.capsule) {
+        existing.capsule.timeCapsule = existing;
+        return existing.capsule;
       }
 
       if (!order.product.isActive) {
@@ -565,7 +586,7 @@ export class CapsulesStepRoomService {
 
       while (attempts < maxAttempts) {
         inviteCode = this.generateInviteCode();
-        const exists = await manager.findOne(Capsule, {
+        const exists = await manager.findOne(TimeCapsule, {
           where: { inviteCode: inviteCode },
         });
 
@@ -585,24 +606,30 @@ export class CapsulesStepRoomService {
 
       const capsule = manager.create(Capsule, {
         userId: order.userId,
-        productId: order.productId,
-        orderId: order.id,
+        capsuleType: CapsuleType.TIME_CAPSULE,
         title: order.capsuleTitle || 'My Time Capsule',
         content: null,
         mediaUrls: null,
         mediaItemIds: null,
         mediaTypes: null,
         textBlocks: null,
-        openAt: openAt,
-        isLocked: true,
-        viewLimit: order.headcount,
-        viewCount: 0,
-        inviteCode: inviteCode,
-        deadline: deadline,
-        roomStatus: RoomStatus.WAITING,
       });
 
       await manager.save(capsule);
+      const timeCapsule = manager.create(TimeCapsule, {
+        capsuleId: capsule.id,
+        orderId: order.id,
+        openAt: openAt,
+        isLocked: true,
+        inviteCode: inviteCode,
+        deadline: deadline,
+        roomStatus: RoomStatus.WAITING,
+        buriedAt: null,
+        isAutoSubmitted: false,
+      });
+      timeCapsule.order = order;
+      await manager.save(timeCapsule);
+      capsule.timeCapsule = timeCapsule;
 
       await this.createParticipantSlotsForStepRoom(
         capsule.id,
@@ -621,34 +648,41 @@ export class CapsulesStepRoomService {
   async findCapsuleByInviteCode(
     inviteCode: string,
   ): Promise<StepRoomResponseDto> {
-    const capsule = await this.capsuleRepository.findOne({
+    const timeCapsule = await this.timeCapsuleRepository.findOne({
       where: { inviteCode: inviteCode.toUpperCase() },
+      relations: { capsule: true, order: true },
     });
 
-    if (!capsule) {
+    if (!timeCapsule || !timeCapsule.capsule) {
       throw new NotFoundException('존재하지 않는 초대 코드입니다');
     }
+    const capsule = timeCapsule.capsule;
 
     const slots = await this.slotRepository.find({
       where: { capsuleId: capsule.id },
     });
 
     const currentParticipants = slots.filter((s) => s.userId !== null).length;
-    const isDeadlinePassed = capsule.deadline && new Date() > capsule.deadline;
-    const isFull = currentParticipants >= capsule.viewLimit;
+    const isDeadlinePassed =
+      timeCapsule.deadline && new Date() > timeCapsule.deadline;
+    const maxParticipants = timeCapsule.order?.headcount ?? 0;
+    const isFull =
+      maxParticipants > 0 && currentParticipants >= maxParticipants;
 
     return {
       room_id: capsule.id,
       capsule_name: capsule.title,
-      open_date: capsule.openAt!,
-      deadline: capsule.deadline!,
-      participant_count: capsule.viewLimit,
+      open_date: timeCapsule.openAt!,
+      deadline: timeCapsule.deadline!,
+      participant_count: maxParticipants,
       current_participants: currentParticipants,
-      status: isDeadlinePassed ? 'EXPIRED' : capsule.roomStatus || 'WAITING',
+      status: isDeadlinePassed
+        ? 'EXPIRED'
+        : timeCapsule.roomStatus || 'WAITING',
       is_joinable:
         !isDeadlinePassed &&
         !isFull &&
-        capsule.roomStatus === RoomStatus.WAITING,
+        timeCapsule.roomStatus === RoomStatus.WAITING,
     };
   }
 
@@ -662,9 +696,13 @@ export class CapsulesStepRoomService {
   ): Promise<StepRoomDetailDto> {
     const capsule = await this.capsuleRepository.findOne({
       where: { id: capsuleId },
+      relations: { timeCapsule: true },
     });
 
     if (!capsule) {
+      throw new NotFoundException('대기실을 찾을 수 없습니다');
+    }
+    if (!capsule.timeCapsule) {
       throw new NotFoundException('대기실을 찾을 수 없습니다');
     }
 
@@ -678,8 +716,8 @@ export class CapsulesStepRoomService {
     const isParticipant = slots.some((s) => s.userId === userId);
     const hasValidInviteCode =
       inviteCode &&
-      capsule.inviteCode &&
-      inviteCode.toUpperCase() === capsule.inviteCode.toUpperCase();
+      capsule.timeCapsule.inviteCode &&
+      inviteCode.toUpperCase() === capsule.timeCapsule.inviteCode.toUpperCase();
 
     if (!isParticipant && !hasValidInviteCode) {
       throw new ForbiddenException({
@@ -692,9 +730,9 @@ export class CapsulesStepRoomService {
     return {
       room_id: capsule.id,
       capsule_name: capsule.title,
-      open_date: capsule.openAt!,
-      deadline: capsule.deadline!,
-      status: capsule.roomStatus || 'WAITING',
+      open_date: capsule.timeCapsule.openAt!,
+      deadline: capsule.timeCapsule.deadline!,
+      status: capsule.timeCapsule.roomStatus || 'WAITING',
       slots: slots.map((slot) => ({
         slot_number: slot.slotIndex + 1,
         user_id: slot.userId,
@@ -718,6 +756,7 @@ export class CapsulesStepRoomService {
       // 1. 캡슐 조회
       const capsule = await manager.findOne(Capsule, {
         where: { id: capsuleId },
+        relations: { timeCapsule: { order: true } },
       });
 
       if (!capsule) {
@@ -727,11 +766,19 @@ export class CapsulesStepRoomService {
           message: '대기실을 찾을 수 없습니다',
         });
       }
+      if (!capsule.timeCapsule) {
+        throw new NotFoundException({
+          success: false,
+          error: 'NOT_FOUND',
+          message: '대기실을 찾을 수 없습니다',
+        });
+      }
 
       // 2. 초대 코드 검증
       if (
-        !capsule.inviteCode ||
-        capsule.inviteCode.toUpperCase() !== inviteCode.toUpperCase()
+        !capsule.timeCapsule?.inviteCode ||
+        capsule.timeCapsule.inviteCode.toUpperCase() !==
+          inviteCode.toUpperCase()
       ) {
         throw new ForbiddenException({
           success: false,
@@ -741,7 +788,10 @@ export class CapsulesStepRoomService {
       }
 
       // 3. 마감시한 확인
-      if (capsule.deadline && new Date() > capsule.deadline) {
+      if (
+        capsule.timeCapsule?.deadline &&
+        new Date() > capsule.timeCapsule.deadline
+      ) {
         throw new ForbiddenException({
           success: false,
           error: 'DEADLINE_PASSED',
@@ -750,7 +800,7 @@ export class CapsulesStepRoomService {
       }
 
       // 4. 대기실 상태 확인
-      if (capsule.roomStatus !== RoomStatus.WAITING) {
+      if (capsule.timeCapsule?.roomStatus !== RoomStatus.WAITING) {
         throw new ForbiddenException({
           success: false,
           error: 'ROOM_NOT_WAITING',
@@ -796,7 +846,7 @@ export class CapsulesStepRoomService {
           error: 'SLOTS_FULL',
           message: '정원이 초과되었습니다',
           data: {
-            max_participants: capsule.viewLimit,
+            max_participants: capsule.timeCapsule?.order?.headcount ?? 0,
             current_participants: slots.filter((s) => s.userId !== null).length,
           },
         });
@@ -826,24 +876,24 @@ export class CapsulesStepRoomService {
   ): Promise<StepRoomSettingsResponseDto> {
     const capsule = await this.capsuleRepository.findOne({
       where: { id: capsuleId },
-      relations: ['order'],
+      relations: { timeCapsule: { order: true } },
     });
 
     if (!capsule) {
       throw new NotFoundException('대기실을 찾을 수 없습니다');
     }
 
-    if (!capsule.order) {
+    if (!capsule.timeCapsule?.order) {
       throw new NotFoundException('주문 정보를 찾을 수 없습니다');
     }
 
-    const order = capsule.order;
+    const order = capsule.timeCapsule.order;
 
     // photoCount는 이미 '인당 개수'이므로 그대로 사용
     const maxImagesPerPerson = order.photoCount;
 
-    const openDate = capsule.openAt
-      ? capsule.openAt.toISOString().split('T')[0]
+    const openDate = capsule.timeCapsule.openAt
+      ? capsule.timeCapsule.openAt.toISOString().split('T')[0]
       : '';
 
     return {
@@ -854,7 +904,7 @@ export class CapsulesStepRoomService {
       max_images_per_person: maxImagesPerPerson,
       has_music: order.addMusic,
       has_video: order.addVideo,
-      invite_code: capsule.inviteCode || '',
+      invite_code: capsule.timeCapsule.inviteCode || '',
     };
   }
 
@@ -872,7 +922,7 @@ export class CapsulesStepRoomService {
     },
   ): Promise<ContentResponseDto> {
     const { capsule, order } =
-      await this.capsulesService.ensurePaidCapsuleContext(capsuleId);
+      await this.timeCapsuleService.ensurePaidCapsuleContext(capsuleId);
 
     await this.validateStepRoomAccess(
       capsule,
@@ -910,7 +960,7 @@ export class CapsulesStepRoomService {
     userId: string,
   ): Promise<GetMyContentResponseDto> {
     // 1. 캡슐 존재 확인
-    await this.capsulesService.ensurePaidCapsuleContext(capsuleId);
+    await this.timeCapsuleService.ensurePaidCapsuleContext(capsuleId);
 
     // 2. 사용자 조회
     const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -1015,7 +1065,7 @@ export class CapsulesStepRoomService {
     longitude: number,
   ): Promise<SubmitCapsuleResponseDto> {
     const { capsule, headcount } =
-      await this.capsulesService.ensurePaidCapsuleContext(capsuleId);
+      await this.timeCapsuleService.ensurePaidCapsuleContext(capsuleId);
 
     this.validateNotAlreadySubmitted(capsule);
 

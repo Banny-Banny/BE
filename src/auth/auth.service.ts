@@ -17,7 +17,7 @@ import { firstValueFrom } from 'rxjs';
 import { User, Capsule, Friendship } from '../entities';
 import { LocalLoginRequestDto } from './dto/local-login.request.dto';
 import { LocalSignupRequestDto } from './dto/local-signup.request.dto';
-import { FriendStatus } from '../common/enums';
+import { CapsuleType, FriendStatus } from '../common/enums';
 import { KakaoFriendsSyncRequestDto } from './dto/kakao-friends-sync.request.dto';
 
 export interface KakaoUserInfo {
@@ -309,19 +309,23 @@ export class AuthService {
       throw new UnauthorizedException('사용자를 찾을 수 없습니다.');
     }
 
-    // 타임캡슐 개수 (product_id가 있는 캡슐)
+    // 타임캡슐 개수 (capsule_type = TIME_CAPSULE)
     const timeCapsuleCount = await this.capsuleRepository
       .createQueryBuilder('capsule')
       .where('capsule.user_id = :userId', { userId })
-      .andWhere('capsule.product_id IS NOT NULL')
+      .andWhere('capsule.capsule_type = :type', {
+        type: CapsuleType.TIME_CAPSULE,
+      })
       .andWhere('capsule.deleted_at IS NULL')
       .getCount();
 
-    // 이스터에그 개수 (product_id가 없는 캡슐)
+    // 이스터에그 개수 (capsule_type = EASTER_EGG)
     const easterEggCount = await this.capsuleRepository
       .createQueryBuilder('capsule')
       .where('capsule.user_id = :userId', { userId })
-      .andWhere('capsule.product_id IS NULL')
+      .andWhere('capsule.capsule_type = :type', {
+        type: CapsuleType.EASTER_EGG,
+      })
       .andWhere('capsule.deleted_at IS NULL')
       .getCount();
 
@@ -340,6 +344,7 @@ export class AuthService {
 
     return {
       nickname: user.nickname,
+      name: user.name ?? null,
       email: user.email,
       profileImageUrl: user.profileImg,
       summary: {

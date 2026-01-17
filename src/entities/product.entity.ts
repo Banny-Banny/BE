@@ -7,7 +7,6 @@ import {
   Check,
 } from 'typeorm';
 import { MediaType } from '../common/enums';
-import { Capsule } from './capsule.entity';
 import { Order } from './order.entity';
 
 export enum ProductType {
@@ -88,9 +87,6 @@ export class Product {
   createdAt: Date;
 
   // Relations
-  @OneToMany(() => Capsule, (capsule) => capsule.product)
-  capsules: Capsule[];
-
   @OneToMany(() => Order, (order) => order.product)
   orders: Order[];
 }

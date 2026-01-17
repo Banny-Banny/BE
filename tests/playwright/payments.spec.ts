@@ -8,11 +8,15 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
 const DB_CONFIG = {
-  host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USERNAME ?? '',
-  password: process.env.DB_PASSWORD ?? '',
-  database: process.env.DB_DATABASE ?? '',
+  host: process.env.TEST_DB_HOST ?? process.env.DB_HOST ?? 'localhost',
+  port: Number(process.env.TEST_DB_PORT ?? process.env.DB_PORT ?? 5432),
+  user: process.env.TEST_DB_USERNAME ?? process.env.DB_USERNAME ?? 'postgres',
+  password:
+    process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? 'postgres',
+  database:
+    process.env.TEST_DB_DATABASE ??
+    process.env.DB_DATABASE ??
+    'banny_banny_test',
 };
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
@@ -41,10 +45,78 @@ async function createUser() {
 }
 
 async function cleanupUser(id: string) {
+  await client.query(
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.user_id = $1
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.user_id = $1
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM time_capsules
+    WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM payment_cancels
+    WHERE payment_id IN (
+      SELECT id FROM payments
+      WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM payments
+    WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    `,
+    [id],
+  );
+  await client.query('DELETE FROM orders WHERE user_id = $1', [id]);
   await client.query('DELETE FROM users WHERE id = $1', [id]);
 }
 
 async function createProductTimeCapsule() {
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+  await client.query('DELETE FROM orders WHERE product_id = $1', [
+    TIME_CAPSULE_PRODUCT_ID,
+  ]);
   await client.query('DELETE FROM products WHERE id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -58,6 +130,13 @@ async function createProductTimeCapsule() {
 }
 
 async function cleanupProducts() {
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+  await client.query('DELETE FROM orders WHERE product_id = $1', [
+    TIME_CAPSULE_PRODUCT_ID,
+  ]);
   await client.query('DELETE FROM products WHERE id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -65,7 +144,14 @@ async function cleanupProducts() {
 
 async function cleanupOrdersAndPayments() {
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query(
     'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
@@ -90,12 +176,12 @@ async function createOrder(token: string) {
   }
   expect(res.status()).toBe(201);
   const body = await res.json();
-  // 금액 필드 검증: base 1000 + photo 500 = 1500
-  expect(body.base_amount).toBe(1000);
-  expect(body.photo_amount).toBe(500);
-  expect(body.music_amount).toBe(0);
+  // 금액 필드 검증: time_option 1000 + image 1000 = 2000
+  expect(body.time_option_amount).toBe(1000);
+  expect(body.image_amount).toBe(1000);
+  expect(body.audio_amount).toBe(0);
   expect(body.video_amount).toBe(0);
-  expect(body.total_amount).toBe(1500);
+  expect(body.total_amount).toBe(2000);
   return body.order_id as string;
 }
 
@@ -162,7 +248,14 @@ test('결제 승인 시 캡슐이 1개 생성되고 주문에 연결된다', asy
   expect(approveBody.capsule_id).toBeTruthy();
 
   const capsuleRes = await client.query(
-    'SELECT id, order_id, product_id, user_id, view_limit FROM capsules WHERE order_id = $1',
+    `SELECT tc.capsule_id,
+            tc.order_id,
+            o.product_id,
+            o.user_id,
+            o.headcount
+     FROM time_capsules tc
+     JOIN orders o ON o.id = tc.order_id
+     WHERE tc.order_id = $1`,
     [orderId],
   );
   expect(capsuleRes.rowCount).toBe(1);
@@ -170,7 +263,7 @@ test('결제 승인 시 캡슐이 1개 생성되고 주문에 연결된다', asy
   expect(row.order_id).toBe(orderId);
   expect(row.product_id).toBe(TIME_CAPSULE_PRODUCT_ID);
   expect(row.user_id).toBe(id);
-  expect(row.view_limit).toBe(2);
+  expect(row.headcount).toBe(2);
 
   await cleanupUser(id);
 });

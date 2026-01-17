@@ -33,6 +33,14 @@ export class User {
 
   @Column({
     type: 'varchar',
+    length: 50,
+    nullable: true,
+    comment: '사용자 이름 (실명 또는 선택 입력)',
+  })
+  name: string | null;
+
+  @Column({
+    type: 'varchar',
     length: 20,
     unique: true,
     name: 'phone_number',

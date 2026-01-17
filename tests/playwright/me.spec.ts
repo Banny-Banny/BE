@@ -7,6 +7,7 @@ import { test, expect, request, APIRequestContext } from '@playwright/test';
 import { Client } from 'pg';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { promisify } from 'util';
 
 // Load test env first, then fall back to default .env
 dotenv.config({ path: '.env.test' });
@@ -24,6 +25,8 @@ const DB_CONFIG = {
 };
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
+const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440200';
+const scryptAsync = promisify(crypto.scrypt);
 
 let api: APIRequestContext;
 let client: Client;
@@ -64,24 +67,101 @@ async function createUser(
   return { id, token, nickname, email };
 }
 
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${salt}:${derivedKey.toString('hex')}`;
+}
+
+async function createAdminUser(
+  email = 'admin@example.com',
+  password = 'admin-password-1234',
+) {
+  const id = crypto.randomUUID();
+  const passwordHash = await hashPassword(password);
+  await client.query(
+    `
+    INSERT INTO admin_users (id, email, name, password_hash, role, is_active)
+    VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', true)
+    `,
+    [id, email.toLowerCase(), '관리자', passwordHash],
+  );
+  return { id, email: email.toLowerCase(), password };
+}
+
+async function loginAdmin(email: string, password: string) {
+  const res = await api.post('/api/admin/auth/login', {
+    data: { email, password },
+  });
+  if (res.status() !== 200) {
+    console.error('admin login', res.status(), await res.text());
+  }
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  return body.accessToken as string;
+}
+
 async function cleanupUser(id: string) {
   await client.query('DELETE FROM users WHERE id = $1', [id]);
 }
 
+async function cleanupAdminUser(id: string) {
+  await client.query('DELETE FROM admin_users WHERE id = $1', [id]);
+}
+
+async function ensureTimeCapsuleProduct() {
+  await client.query(
+    `
+    INSERT INTO products (id, name, price, product_type, is_active)
+    VALUES ($1, 'me-timecapsule', 0, 'TIME_CAPSULE', true)
+    ON CONFLICT (id) DO NOTHING
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+}
+
 async function createCapsule(
   userId: string,
-  viewLimit = 0,
   roomStatus = 'WAITING',
   lat = 37.5665,
   lng = 126.978,
 ) {
+  await ensureTimeCapsuleProduct();
   const capsuleId = crypto.randomUUID();
+  const orderId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, title, content, latitude, longitude, view_limit, view_count, is_locked, open_at, room_status)
-    VALUES ($1, $2, 'test capsule', 'test content', $3, $4, $5, 0, true, NOW() + interval '1 day', $6)
+    INSERT INTO orders (
+      id,
+      user_id,
+      product_id,
+      total_amount,
+      time_option,
+      custom_open_at,
+      headcount,
+      photo_count,
+      add_music,
+      add_video,
+      status,
+      created_at
+    )
+    VALUES ($1, $2, $3, 0, '1_WEEK', NULL, 2, 0, false, false, 'PAID', NOW())
     `,
-    [capsuleId, userId, lat, lng, viewLimit, roomStatus],
+    [orderId, userId, TIME_CAPSULE_PRODUCT_ID],
+  );
+  await client.query(
+    `
+    INSERT INTO capsules (id, user_id, capsule_type, title, content, latitude, longitude)
+    VALUES ($1, $2, 'TIME_CAPSULE', 'test capsule', 'test content', $3, $4)
+    `,
+    [capsuleId, userId, lat, lng],
+  );
+  await client.query(
+    `
+    INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, room_status)
+    VALUES ($1, $2, NOW() + interval '1 day', true, $3)
+    `,
+    [capsuleId, orderId, roomStatus],
   );
   return capsuleId;
 }
@@ -293,7 +373,7 @@ test('POST /api/me/profile-image 201: 프로필 이미지 업로드 성공 (JPEG
 
   const body = await res.json();
   expect(body.profileImageUrl).toBeDefined();
-  expect(body.profileImageUrl).toContain('profiles/');
+  expect(body.profileImageUrl).toContain('/media/');
 
   // DB에서 프로필 이미지 URL 확인
   const dbUser = await client.query(
@@ -424,7 +504,7 @@ test('POST /api/me/profile-image 400: 잘못된 파일 형식 (PDF)', async () =
   await cleanupUser(user.id);
 });
 
-test('POST /api/me/profile-image 400: 파일 크기 초과 (6MB)', async () => {
+test('POST /api/me/profile-image 413: 파일 크기 초과 (6MB)', async () => {
   const user = await createUser('크기초과');
 
   // 6MB 크기의 버퍼 생성
@@ -441,9 +521,9 @@ test('POST /api/me/profile-image 400: 파일 크기 초과 (6MB)', async () => {
     },
   });
 
-  expect(res.status()).toBe(400);
+  expect(res.status()).toBe(413);
   const bodyText = await res.text();
-  expect(bodyText).toContain('5MB');
+  expect(bodyText).toContain('File too large');
 
   await cleanupUser(user.id);
 });
@@ -472,12 +552,12 @@ test('GET /api/me/capsules 200: 참여중인 캡슐 목록 조회', async () => 
   const user = await createUser('캡슐유저');
 
   // 사용자가 생성한 캡슐
-  const capsule1 = await createCapsule(user.id, 0, 'WAITING');
+  const capsule1 = await createCapsule(user.id, 'WAITING');
   await createCapsuleParticipant(capsule1, user.id);
 
   // 사용자가 참여한 캡슐
   const otherUser = await createUser('다른유저');
-  const capsule2 = await createCapsule(otherUser.id, 0, 'WAITING');
+  const capsule2 = await createCapsule(otherUser.id, 'WAITING');
   await createCapsuleParticipant(capsule2, user.id);
 
   const res = await api.get('/api/me/capsules?limit=10&offset=0', {
@@ -1018,9 +1098,11 @@ test('POST /api/me/notifications/:notificationId/delete 403: 다른 사용자의
 
 test('POST /api/admin/notifications 201: 특정 사용자에게 알림 발송', async () => {
   const user = await createUser('타겟유저', 'target@example.com');
+  const admin = await createAdminUser();
+  const adminToken = await loginAdmin(admin.email, admin.password);
 
   const res = await api.post('/api/admin/notifications', {
-    headers: { Authorization: `Bearer ${user.token}` },
+    headers: { Authorization: `Bearer ${adminToken}` },
     data: {
       targetType: 'USER',
       userId: user.id,
@@ -1047,15 +1129,18 @@ test('POST /api/admin/notifications 201: 특정 사용자에게 알림 발송', 
 
   await cleanupNotifications(user.id);
   await cleanupUser(user.id);
+  await cleanupAdminUser(admin.id);
 });
 
 test('POST /api/admin/notifications 201: 전체 사용자에게 알림 발송', async () => {
   const user1 = await createUser('유저1', 'user1@example.com');
   const user2 = await createUser('유저2', 'user2@example.com');
   const user3 = await createUser('유저3', 'user3@example.com');
+  const admin = await createAdminUser();
+  const adminToken = await loginAdmin(admin.email, admin.password);
 
   const res = await api.post('/api/admin/notifications', {
-    headers: { Authorization: `Bearer ${user1.token}` },
+    headers: { Authorization: `Bearer ${adminToken}` },
     data: {
       targetType: 'ALL',
       title: '전체 알림',
@@ -1081,14 +1166,16 @@ test('POST /api/admin/notifications 201: 전체 사용자에게 알림 발송', 
   await cleanupUser(user1.id);
   await cleanupUser(user2.id);
   await cleanupUser(user3.id);
+  await cleanupAdminUser(admin.id);
 });
 
 test('POST /api/admin/notifications 404: 존재하지 않는 사용자에게 발송', async () => {
-  const admin = await createUser('관리자');
+  const admin = await createAdminUser();
+  const adminToken = await loginAdmin(admin.email, admin.password);
   const fakeUserId = crypto.randomUUID();
 
   const res = await api.post('/api/admin/notifications', {
-    headers: { Authorization: `Bearer ${admin.token}` },
+    headers: { Authorization: `Bearer ${adminToken}` },
     data: {
       targetType: 'USER',
       userId: fakeUserId,
@@ -1100,5 +1187,5 @@ test('POST /api/admin/notifications 404: 존재하지 않는 사용자에게 발
 
   expect(res.status()).toBe(404);
 
-  await cleanupUser(admin.id);
+  await cleanupAdminUser(admin.id);
 });

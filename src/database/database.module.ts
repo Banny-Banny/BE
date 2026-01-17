@@ -3,8 +3,11 @@ import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   User,
+  AdminUser,
   Product,
   Capsule,
+  TimeCapsule,
+  EasterEgg,
   CapsuleAccessLog,
   Order,
   Payment,
@@ -36,8 +39,11 @@ import {
 
         const entities = [
           User,
+          AdminUser,
           Product,
           Capsule,
+          TimeCapsule,
+          EasterEgg,
           CapsuleAccessLog,
           CapsuleParticipantSlot,
           CapsuleEntry,

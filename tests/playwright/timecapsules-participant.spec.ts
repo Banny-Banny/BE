@@ -8,11 +8,15 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
 const DB_CONFIG = {
-  host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USERNAME ?? '',
-  password: process.env.DB_PASSWORD ?? '',
-  database: process.env.DB_DATABASE ?? '',
+  host: process.env.TEST_DB_HOST ?? process.env.DB_HOST ?? 'localhost',
+  port: Number(process.env.TEST_DB_PORT ?? process.env.DB_PORT ?? 5432),
+  user: process.env.TEST_DB_USERNAME ?? process.env.DB_USERNAME ?? 'postgres',
+  password:
+    process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? 'postgres',
+  database:
+    process.env.TEST_DB_DATABASE ??
+    process.env.DB_DATABASE ??
+    'banny_banny_test',
 };
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
@@ -43,15 +47,33 @@ async function createUser(nickname: string = 'test-user') {
 async function cleanupUser(id: string) {
   // Foreign key 제약 조건 순서대로 삭제
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT capsule_id FROM time_capsules
+      WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [id],
   );
   await client.query(
-    'DELETE FROM capsule_access_logs WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1))',
+    `
+    DELETE FROM capsule_access_logs
+    WHERE capsule_id IN (
+      SELECT capsule_id FROM time_capsules
+      WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [id],
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT capsule_id FROM time_capsules
+      WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [id],
   );
   await client.query(
@@ -83,13 +105,31 @@ async function cleanupProducts() {
 
 async function cleanupOrdersAndPayments() {
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT capsule_id FROM time_capsules
+      WHERE order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query(
-    'DELETE FROM capsule_access_logs WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders))',
+    `
+    DELETE FROM capsule_access_logs
+    WHERE capsule_id IN (
+      SELECT capsule_id FROM time_capsules
+      WHERE order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT capsule_id FROM time_capsules
+      WHERE order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query(
     'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
@@ -130,7 +170,7 @@ test.afterAll(async () => {
 });
 
 test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
-  test('참여자는 토큰 없이 user_id로 타임캡슐을 조회할 수 있다', async () => {
+  test('참여자는 토큰으로 타임캡슐을 조회할 수 있다', async () => {
     await createProductTimeCapsule();
     const owner = await createUser('방장');
     const participant = await createUser('참여자');
@@ -157,14 +197,14 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
 
     // 3. 타임캡슐이 열린 상태로 변경 (open_at을 과거로 설정)
     await client.query(
-      `UPDATE capsules SET open_at = NOW() - INTERVAL '1 day' WHERE id = $1`,
+      `UPDATE time_capsules SET open_at = NOW() - INTERVAL '1 day' WHERE capsule_id = $1`,
       [capsuleId],
     );
 
-    // 4. 참여자가 토큰 없이 조회
-    const res = await api.get(
-      `/api/timecapsules/${capsuleId}?user_id=${participant.id}`,
-    );
+    // 4. 참여자가 토큰으로 조회
+    const res = await api.get(`/api/timecapsules/${capsuleId}`, {
+      headers: { Authorization: `Bearer ${participant.token}` },
+    });
 
     expect(res.status()).toBe(200);
     const body = await res.json();
@@ -176,7 +216,7 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
       console.log(`슬롯 ${idx + 1}:`);
       console.log(`  - user_id: ${slot.user_id}`);
       console.log(`  - nickname: ${slot.nickname}`);
-      console.log(`  - content: ${slot.content ? '있음' : '없음'}`);
+      console.log(`  - content: ${slot.text_message ? '있음' : '없음'}`);
       console.log(`  - images: ${slot.images_ids?.length || 0}개`);
     });
 
@@ -184,7 +224,7 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     expect(body.id).toBe(capsuleId);
     expect(body.is_locked).toBe(false); // 열린 상태
     expect(body.slots).toHaveLength(3);
-    expect(body.stats.total_slots).toBe(3);
+    expect(body.headcount).toBe(3);
 
     await cleanupUser(owner.id);
     await cleanupUser(participant.id);
@@ -209,9 +249,9 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     const capsuleId = approveBody.step_room.room_id;
 
     // 2. 비참여자가 조회 시도
-    const res = await api.get(
-      `/api/timecapsules/${capsuleId}?user_id=${stranger.id}`,
-    );
+    const res = await api.get(`/api/timecapsules/${capsuleId}`, {
+      headers: { Authorization: `Bearer ${stranger.token}` },
+    });
 
     expect(res.status()).toBe(403);
     const body = await res.json();
@@ -248,14 +288,14 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
 
     // 3. 타임캡슐이 잠긴 상태 유지 (open_at이 미래)
     await client.query(
-      `UPDATE capsules SET open_at = NOW() + INTERVAL '7 days' WHERE id = $1`,
+      `UPDATE time_capsules SET open_at = NOW() + INTERVAL '7 days' WHERE capsule_id = $1`,
       [capsuleId],
     );
 
     // 4. 참여자가 조회
-    const res = await api.get(
-      `/api/timecapsules/${capsuleId}?user_id=${participant.id}`,
-    );
+    const res = await api.get(`/api/timecapsules/${capsuleId}`, {
+      headers: { Authorization: `Bearer ${participant.token}` },
+    });
 
     expect(res.status()).toBe(200);
     const body = await res.json();
@@ -265,7 +305,7 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
 
     // 6. 모든 슬롯의 content와 미디어가 null/빈 배열이어야 함
     body.slots.forEach((slot: any) => {
-      expect(slot.content).toBeNull();
+      expect(slot.text_message).toBeNull();
       expect(slot.images_ids).toEqual([]);
       expect(slot.audio_id).toBeNull();
       expect(slot.video_id).toBeNull();
@@ -437,14 +477,14 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
 
     // 4. 타임캡슐이 열린 상태로 변경
     await client.query(
-      `UPDATE capsules SET open_at = NOW() - INTERVAL '1 day' WHERE id = $1`,
+      `UPDATE time_capsules SET open_at = NOW() - INTERVAL '1 day' WHERE capsule_id = $1`,
       [capsuleId],
     );
 
     // 5. 참여자1이 조회
-    const res = await api.get(
-      `/api/timecapsules/${capsuleId}?user_id=${user1.id}`,
-    );
+    const res = await api.get(`/api/timecapsules/${capsuleId}`, {
+      headers: { Authorization: `Bearer ${user1.token}` },
+    });
 
     expect(res.status()).toBe(200);
     const body = await res.json();
@@ -460,28 +500,30 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     const assignedSlots = body.slots.filter((s: any) => s.user_id !== null);
     expect(assignedSlots).toHaveLength(3);
 
-    // 모든 슬롯의 content가 있는지 확인 (본인 것만이 아니라)
-    const slotsWithContent = body.slots.filter((s: any) => s.content !== null);
-    expect(slotsWithContent).toHaveLength(3);
+    // 모든 슬롯이 작성 완료 상태인지 확인
+    const completedSlots = body.slots.filter(
+      (s: any) => s.status === 'COMPLETED',
+    );
+    expect(completedSlots).toHaveLength(3);
 
     // 슬롯별 상세 검증
     body.slots.forEach((slot: any, idx: number) => {
       console.log(`\n슬롯 ${idx + 1}:`);
       console.log(`  - user_id: ${slot.user_id}`);
       console.log(`  - nickname: ${slot.nickname}`);
-      console.log(`  - content: ${slot.content}`);
+      console.log(`  - content: ${slot.text_message ?? ''}`);
       console.log(`  - images: ${slot.images_ids?.length ?? 0}개`);
       console.log(`  - audio: ${slot.audio_id ? 'O' : 'X'}`);
       console.log(`  - video: ${slot.video_id ? 'O' : 'X'}`);
 
       expect(slot.user_id).not.toBeNull();
       expect(slot.nickname).toBeTruthy();
-      expect(slot.content).toBeTruthy(); // 모든 슬롯에 메시지가 있어야 함
+      expect(slot.status).toBe('COMPLETED');
     });
 
     // 미디어 파일 상세 검증
     const ownerSlot = body.slots.find(
-      (slot: any) => slot.content === '방장의 메시지',
+      (slot: any) => slot.text_message === '방장의 메시지',
     );
     expect(ownerSlot).toBeDefined();
     expect(ownerSlot.images_ids).toHaveLength(2); // 방장: 이미지 2개
@@ -490,7 +532,7 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     expect(ownerSlot.audio_id.object_key).toBeTruthy();
 
     const user1Slot = body.slots.find(
-      (slot: any) => slot.content === '참여자1의 메시지',
+      (slot: any) => slot.text_message === '참여자1의 메시지',
     );
     expect(user1Slot).toBeDefined();
     expect(user1Slot.images_ids).toHaveLength(1); // 참여자1: 이미지 1개
@@ -499,7 +541,7 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     expect(user1Slot.video_id.object_key).toBeTruthy();
 
     const user2Slot = body.slots.find(
-      (slot: any) => slot.content === '참여자2의 메시지',
+      (slot: any) => slot.text_message === '참여자2의 메시지',
     );
     expect(user2Slot).toBeDefined();
     expect(user2Slot.images_ids).toHaveLength(3); // 참여자2: 이미지 3개
@@ -512,17 +554,18 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
   });
 
   test('존재하지 않는 capsuleId는 404를 반환한다', async () => {
+    const owner = await createUser('방장');
     const fakeUuid = '00000000-0000-0000-0000-000000000000';
-    const fakeUserId = '00000000-0000-0000-0000-000000000001';
 
-    const res = await api.get(
-      `/api/timecapsules/${fakeUuid}?user_id=${fakeUserId}`,
-    );
+    const res = await api.get(`/api/timecapsules/${fakeUuid}`, {
+      headers: { Authorization: `Bearer ${owner.token}` },
+    });
 
     expect(res.status()).toBe(404);
+    await cleanupUser(owner.id);
   });
 
-  test('user_id 파라미터가 없으면 400을 반환한다', async () => {
+  test('토큰 없이 요청하면 401을 반환한다', async () => {
     await createProductTimeCapsule();
     const owner = await createUser('방장');
 
@@ -538,10 +581,10 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     const approveBody = await approveRes.json();
     const capsuleId = approveBody.step_room.room_id;
 
-    // user_id 없이 조회
+    // 토큰 없이 조회
     const res = await api.get(`/api/timecapsules/${capsuleId}`);
 
-    expect(res.status()).toBe(400);
+    expect(res.status()).toBe(401);
 
     await cleanupUser(owner.id);
   });

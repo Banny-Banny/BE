@@ -124,18 +124,19 @@ export class CapsulesStepRoomController {
       createStepRoomDto.order_id,
     );
 
-    const inviteCode = capsule.inviteCode!;
+    const timeCapsule = capsule.timeCapsule!;
+    const inviteCode = timeCapsule.inviteCode!;
     const shareLink = `timeegg://room/join?invite_code=${inviteCode}`;
 
     return {
       capsule_id: capsule.id,
       invite_code: inviteCode,
       title: capsule.title,
-      open_date: capsule.openAt!,
-      deadline: capsule.deadline!,
-      max_participants: capsule.viewLimit,
+      open_date: timeCapsule.openAt!,
+      deadline: timeCapsule.deadline!,
+      max_participants: timeCapsule.order?.headcount ?? 0,
       current_participants: 1, // 생성 시점에는 방장만 참여
-      status: capsule.roomStatus!,
+      status: timeCapsule.roomStatus!,
       created_at: capsule.createdAt,
       share_link: shareLink,
     };

@@ -13,7 +13,7 @@ import { OrderStatus, TimeOption } from '../common/enums';
 import { User } from './user.entity';
 import { Product } from './product.entity';
 import { Payment } from './payment.entity';
-import { Capsule } from './capsule.entity';
+import { TimeCapsule } from './time-capsule.entity';
 
 /**
  * 사용자의 주문 시도 내역
@@ -119,6 +119,6 @@ export class Order {
   @OneToOne(() => Payment, (payment) => payment.order)
   payment: Payment;
 
-  @OneToOne(() => Capsule, (capsule) => capsule.order)
-  capsule: Capsule | null;
+  @OneToOne(() => TimeCapsule, (timeCapsule) => timeCapsule.order)
+  timeCapsule: TimeCapsule | null;
 }

@@ -47,11 +47,25 @@ async function createUser(nickname = 'content-test-user') {
 
 async function cleanupUser(userId: string) {
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [userId],
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [userId],
   );
   await client.query(
@@ -112,7 +126,7 @@ async function createCapsuleWithOrder(
 
   // 3. 캡슐 수동 생성 (결제 후 자동 생성되지 않으면)
   const capsuleResult = await client.query(
-    `SELECT id FROM capsules WHERE order_id = $1`,
+    `SELECT capsule_id FROM time_capsules WHERE order_id = $1`,
     [orderId],
   );
 
@@ -123,9 +137,14 @@ async function createCapsuleWithOrder(
     openAt.setDate(openAt.getDate() + 7);
 
     await client.query(
-      `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, room_status, created_at)
-       VALUES ($1, $2, $3, $4, '테스트 캡슐', $5, 'WAITING', NOW())`,
-      [capsuleId, userId, TIME_CAPSULE_PRODUCT_ID, orderId, openAt],
+      `INSERT INTO capsules (id, user_id, capsule_type, title, created_at)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐', NOW())`,
+      [capsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, room_status)
+       VALUES ($1, $2, $3, true, 'WAITING')`,
+      [capsuleId, orderId, openAt],
     );
 
     // 슬롯 생성
@@ -146,7 +165,7 @@ async function createCapsuleWithOrder(
       [userId, capsuleId],
     );
   } else {
-    capsuleId = capsuleResult.rows[0].id;
+    capsuleId = capsuleResult.rows[0].capsule_id;
   }
 
   return { capsuleId, orderId };

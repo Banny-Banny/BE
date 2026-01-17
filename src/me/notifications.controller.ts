@@ -18,6 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminJwtAuthGuard } from '../admin/auth/guards/admin-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
 import { NotificationsService } from './notifications.service';
@@ -206,9 +207,9 @@ export class NotificationsController {
  * 관리자 전용 기능
  */
 @ApiTags('Admin - Notifications (관리자 알림 발송)')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @Controller('admin/notifications')
-@UseGuards(JwtAuthGuard) // TODO: AdminGuard 추가 필요
+@UseGuards(AdminJwtAuthGuard)
 export class AdminNotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 

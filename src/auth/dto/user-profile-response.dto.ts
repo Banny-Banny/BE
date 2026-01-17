@@ -2,13 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class UserSummaryDto {
   @ApiProperty({
-    description: '작성한 타임캡슐 개수 (product_id가 있는 캡슐)',
+    description: '작성한 타임캡슐 개수',
     example: 3,
   })
   timeCapsuleCount: number;
 
   @ApiProperty({
-    description: '작성한 이스터에그 개수 (product_id가 없는 캡슐)',
+    description: '작성한 이스터에그 개수',
     example: 12,
   })
   easterEggCount: number;
@@ -26,6 +26,13 @@ export class UserProfileDataDto {
     example: '토끼유저',
   })
   nickname: string;
+
+  @ApiProperty({
+    description: '이름',
+    example: '홍길동',
+    nullable: true,
+  })
+  name: string | null;
 
   @ApiProperty({
     description: '이메일',
@@ -61,4 +68,3 @@ export class UserProfileResponseDto {
   })
   data: UserProfileDataDto;
 }
-

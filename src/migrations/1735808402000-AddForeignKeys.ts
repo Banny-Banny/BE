@@ -15,10 +15,16 @@ export class AddForeignKeys1735808402000 implements MigrationInterface {
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsules_user') THEN
           ALTER TABLE "capsules" ADD CONSTRAINT "FK_capsules_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE;
         END IF;
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsules_product') THEN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'capsules' AND column_name = 'product_id'
+        ) AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsules_product') THEN
           ALTER TABLE "capsules" ADD CONSTRAINT "FK_capsules_product" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE SET NULL;
         END IF;
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsules_order') THEN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'capsules' AND column_name = 'order_id'
+        ) AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_capsules_order') THEN
           ALTER TABLE "capsules" ADD CONSTRAINT "FK_capsules_order" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE SET NULL;
         END IF;
 

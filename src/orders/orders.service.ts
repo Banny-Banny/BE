@@ -204,6 +204,8 @@ export class OrdersService {
       const currentParticipants =
         await this.capsulesService.getCurrentParticipantsCount(capsule.id);
 
+      const timeCapsule = capsule.timeCapsule;
+
       return {
         order_id: saved.id,
         total_amount: saved.totalAmount,
@@ -220,14 +222,14 @@ export class OrdersService {
         status: saved.status,
         // 테스트 모드에서는 캡슐 정보도 함께 반환
         capsule_id: capsule.id,
-        invite_code: capsule.inviteCode,
+        invite_code: timeCapsule?.inviteCode ?? null,
         step_room: {
           room_id: capsule.id,
-          invite_code: capsule.inviteCode,
+          invite_code: timeCapsule?.inviteCode ?? null,
           capsule_name: capsule.title,
-          open_date: capsule.openAt,
-          deadline: capsule.deadline,
-          participant_count: capsule.viewLimit,
+          open_date: timeCapsule?.openAt ?? null,
+          deadline: timeCapsule?.deadline ?? null,
+          participant_count: timeCapsule?.order?.headcount ?? saved.headcount,
           current_participants: currentParticipants,
           created_at: capsule.createdAt,
         },
@@ -255,7 +257,7 @@ export class OrdersService {
   async findOne(user: User, id: string) {
     const order = await this.orderRepository.findOne({
       where: { id },
-      relations: { product: true, capsule: true },
+      relations: { product: true, timeCapsule: { capsule: true } },
     });
 
     if (!order) {
@@ -278,8 +280,8 @@ export class OrdersService {
     return {
       order: {
         order_id: order.id,
-        capsule_id: order.capsule ? order.capsule.id : null,
-        invite_code: order.capsule ? order.capsule.inviteCode : null,
+        capsule_id: order.timeCapsule?.capsule?.id ?? null,
+        invite_code: order.timeCapsule?.inviteCode ?? null,
         status: order.status,
         total_amount: order.totalAmount,
         time_option: order.timeOption,

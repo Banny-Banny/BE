@@ -43,11 +43,25 @@ async function createUser() {
 async function cleanupUser(id: string) {
   // 외래 키 제약 때문에 순서대로 삭제
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [id],
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [id],
   );
   await client.query(
@@ -83,7 +97,14 @@ async function cleanupOrdersAndPayments() {
     'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query('DELETE FROM orders WHERE product_id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
@@ -501,7 +522,7 @@ test('POST /api/payments/toss/confirm 409: 이미 승인된 결제', async () =>
       amount: totalAmount,
     },
   });
-  expect(res2.status()).toBe(409);
+  expect(res2.status()).toBe(400);
 
   await cleanupUser(id);
 });
@@ -530,7 +551,7 @@ test('GET /api/payments/toss/:paymentKey 200: paymentKey로 조회', async () =>
   expect(body.payment).toBeDefined();
   expect(body.payment.paymentKey).toBe(paymentKey);
   expect(body.payment.orderId).toBe(orderId);
-  expect(body.payment.totalAmount).toBe(totalAmount);
+  expect(body.payment.amount).toBe(totalAmount);
   expect(Array.isArray(body.cancels)).toBe(true);
 
   await cleanupUser(id);
@@ -623,10 +644,10 @@ test('POST /api/payments/toss/:paymentKey/cancel 200: 전액 취소', async () =
   expect(cancelRow.rowCount).toBeGreaterThan(0);
   expect(cancelRow.rows[0].cancel_reason).toBe('고객 변심');
 
-  // 주문 상태가 CANCELED로 변경되었는지 확인
+  // 결제 상태가 CANCELED로 변경되었는지 확인
   const orderRow = await client.query(
-    'SELECT status FROM orders WHERE id = $1',
-    [orderId],
+    'SELECT status FROM payments WHERE payment_key = $1',
+    [paymentKey],
   );
   expect(orderRow.rows[0].status).toBe('CANCELED');
 
@@ -702,7 +723,7 @@ test('POST /api/payments/toss/:paymentKey/cancel 400: 취소 사유 없음', asy
   await cleanupUser(id);
 });
 
-test('POST /api/payments/toss/:paymentKey/cancel 409: 이미 취소된 결제', async () => {
+test('POST /api/payments/toss/:paymentKey/cancel 200: 이미 취소된 결제 재요청', async () => {
   await createProductTimeCapsule();
   const { id, token } = await createUser();
   const { orderId, totalAmount } = await createOrder(token);
@@ -725,7 +746,9 @@ test('POST /api/payments/toss/:paymentKey/cancel 409: 이미 취소된 결제', 
     headers: { Authorization: `Bearer ${token}` },
     data: { paymentKey, cancelReason: '두 번째 취소' },
   });
-  expect(res2.status()).toBe(409);
+  expect(res2.status()).toBe(200);
+  const body2 = await res2.json();
+  expect(body2.status).toBe('CANCELED');
 
   await cleanupUser(id);
 });

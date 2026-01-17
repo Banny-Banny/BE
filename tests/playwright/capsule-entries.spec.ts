@@ -62,9 +62,18 @@ async function cleanupUser(id: string) {
 async function createProductTimeCapsule() {
   await client.query('DELETE FROM capsule_entries');
   await client.query('DELETE FROM capsule_participant_slots');
-  await client.query('DELETE FROM capsules WHERE product_id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
   await client.query('DELETE FROM orders WHERE product_id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -83,9 +92,18 @@ async function createProductTimeCapsule() {
 async function cleanupProductsAndCapsules() {
   await client.query('DELETE FROM capsule_entries');
   await client.query('DELETE FROM capsule_participant_slots');
-  await client.query('DELETE FROM capsules WHERE product_id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
   await client.query('DELETE FROM orders WHERE product_id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -112,13 +130,35 @@ async function createPaidOrderWithCapsule(
   const capsuleId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, product_id, order_id, title, content, media_urls, media_types,
-                          open_at, is_locked, view_limit, view_count, latitude, longitude)
-    VALUES ($1, $2, $3, $4, 'capsule-title', NULL, NULL, NULL,
-            NOW() + interval '1 day', true, $5, 0, NULL, NULL)
+    INSERT INTO capsules (id, user_id, capsule_type, title, content)
+    VALUES ($1, $2, 'TIME_CAPSULE', 'capsule-title', NULL)
     `,
-    [capsuleId, userId, TIME_CAPSULE_PRODUCT_ID, orderId, headcount],
+    [capsuleId, userId],
   );
+  await client.query(
+    `
+    INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked)
+    VALUES ($1, $2, NOW() + interval '1 day', true)
+    `,
+    [capsuleId, orderId],
+  );
+
+  for (let i = 0; i < headcount; i += 1) {
+    const assignedUserId = i === 0 ? userId : null;
+    await client.query(
+      `
+      INSERT INTO capsule_participant_slots (
+        capsule_id,
+        slot_index,
+        user_id,
+        assigned_at,
+        status
+      )
+      VALUES ($1, $2, $3, $4, 'PENDING')
+      `,
+      [capsuleId, i, assignedUserId, assignedUserId ? new Date() : null],
+    );
+  }
 
   return { orderId, capsuleId };
 }
@@ -158,7 +198,7 @@ test('PAID 캡슐 조회: 슬롯/작성자/미디어 포함 200', async () => {
   const owner = await createUser();
   const { capsuleId } = await createPaidOrderWithCapsule(owner.id, 2, 'PAID');
 
-  const res = await api.get(`/api/capsules/${capsuleId}`, {
+  const res = await api.get(`/api/time-capsules/${capsuleId}`, {
     headers: { Authorization: `Bearer ${owner.token}` },
   });
 
@@ -180,7 +220,7 @@ test('미결제 캡슐 조회: 403', async () => {
     'PENDING_PAYMENT',
   );
 
-  const res = await api.get(`/api/capsules/${capsuleId}`, {
+  const res = await api.get(`/api/time-capsules/${capsuleId}`, {
     headers: { Authorization: `Bearer ${owner.token}` },
   });
 
@@ -195,7 +235,7 @@ test('슬롯 작성 성공 201, 중복 작성 409', async () => {
   const { capsuleId } = await createPaidOrderWithCapsule(writer.id, 1, 'PAID');
   const mediaId = await insertMedia(writer.id);
 
-  const first = await api.post(`/api/capsules/${capsuleId}/entries`, {
+  const first = await api.post(`/api/time-capsules/${capsuleId}/entries`, {
     headers: { Authorization: `Bearer ${writer.token}` },
     data: {
       content: 'my first entry',
@@ -207,7 +247,7 @@ test('슬롯 작성 성공 201, 중복 작성 409', async () => {
   expect(firstBody.slot_index).toBe(0);
   expect(firstBody.media_items?.[0]?.media_id).toBe(mediaId);
 
-  const second = await api.post(`/api/capsules/${capsuleId}/entries`, {
+  const second = await api.post(`/api/time-capsules/${capsuleId}/entries`, {
     headers: { Authorization: `Bearer ${writer.token}` },
     data: { content: 'again' },
   });
@@ -216,41 +256,43 @@ test('슬롯 작성 성공 201, 중복 작성 409', async () => {
   await cleanupUser(writer.id);
 });
 
-test('다른 유저가 남은 슬롯을 작성, 이후 슬롯 가득 시 409', async () => {
+test('다른 유저가 참여하지 않은 캡슐에 작성 시 403', async () => {
   await createProductTimeCapsule();
   const owner = await createUser();
   const other = await createUser();
   const { capsuleId } = await createPaidOrderWithCapsule(owner.id, 1, 'PAID');
 
-  const first = await api.post(`/api/capsules/${capsuleId}/entries`, {
+  const first = await api.post(`/api/time-capsules/${capsuleId}/entries`, {
     headers: { Authorization: `Bearer ${owner.token}` },
     data: { content: 'owner entry' },
   });
   expect(first.status()).toBe(201);
 
-  const second = await api.post(`/api/capsules/${capsuleId}/entries`, {
+  const second = await api.post(`/api/time-capsules/${capsuleId}/entries`, {
     headers: { Authorization: `Bearer ${other.token}` },
     data: { content: 'other entry' },
   });
-  expect(second.status()).toBe(409);
+  expect(second.status()).toBe(403);
 
   await cleanupUser(owner.id);
   await cleanupUser(other.id);
 });
 
-test('타인 media_id 사용 시 403', async () => {
+test('타인 media_id 사용 시 400', async () => {
   await createProductTimeCapsule();
   const owner = await createUser();
   const another = await createUser();
   const { capsuleId } = await createPaidOrderWithCapsule(owner.id, 1, 'PAID');
   const foreignMediaId = await insertMedia(another.id);
 
-  const res = await api.post(`/api/capsules/${capsuleId}/entries`, {
+  const res = await api.post(`/api/time-capsules/${capsuleId}/entries`, {
     headers: { Authorization: `Bearer ${owner.token}` },
     data: { content: 'with foreign media', media_item_ids: [foreignMediaId] },
   });
 
-  expect(res.status()).toBe(403);
+  expect(res.status()).toBe(400);
+  const bodyText = await res.text();
+  expect(bodyText).toContain('MEDIA_NOT_FOUND');
 
   await cleanupUser(owner.id);
   await cleanupUser(another.id);

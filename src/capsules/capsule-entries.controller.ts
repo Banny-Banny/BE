@@ -20,7 +20,7 @@ import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
-import { CapsulesService } from './capsules.service';
+import { TimeCapsuleService } from './time-capsule.service';
 import { GetCapsuleParamDto } from './dto/get-capsule.dto';
 import { CreateCapsuleEntryDto } from './dto/create-capsule-entry.dto';
 import { MulterFile } from '../media/types/multer-file.interface';
@@ -29,7 +29,7 @@ import { MulterFile } from '../media/types/multer-file.interface';
 @ApiBearerAuth('access-token')
 @Controller('time-capsules')
 export class CapsuleEntriesController {
-  constructor(private readonly capsulesService: CapsulesService) {}
+  constructor(private readonly timeCapsuleService: TimeCapsuleService) {}
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
@@ -45,7 +45,7 @@ export class CapsuleEntriesController {
     @CurrentUser() user: User,
     @Param() params: GetCapsuleParamDto,
   ) {
-    return this.capsulesService.getCapsuleWithSlots(user, params.id);
+    return this.timeCapsuleService.getCapsuleWithSlots(user, params.id);
   }
 
   @Post(':id/entries')
@@ -76,6 +76,11 @@ export class CapsuleEntriesController {
     @Body() dto: CreateCapsuleEntryDto,
     @UploadedFiles() files?: MulterFile[],
   ) {
-    return this.capsulesService.createCapsuleEntry(user, params.id, dto, files);
+    return this.timeCapsuleService.createCapsuleEntry(
+      user,
+      params.id,
+      dto,
+      files,
+    );
   }
 }

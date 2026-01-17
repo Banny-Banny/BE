@@ -1,5 +1,4 @@
 import {
-  ArrayMaxSize,
   IsArray,
   IsNotEmpty,
   IsOptional,
@@ -7,7 +6,7 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MulterFile } from '../../media/types/multer-file.interface';
 
 export class CreateCapsuleEntryDto {
@@ -24,19 +23,18 @@ export class CreateCapsuleEntryDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(3)
   @IsUUID('all', { each: true })
-  @ApiProperty({
-    description: '미디어 ID 배열 (기존 방식 호환용, 선택적)',
-    required: false,
+  @ApiPropertyOptional({
+    description:
+      '미디어 ID 배열 (기존 방식 호환용, 선택적). 실제 제한은 상품 정책으로 검증됩니다.',
     type: [String],
     example: ['550e8400-e29b-41d4-a716-446655440000'],
   })
   media_item_ids?: string[];
 
-  @ApiProperty({
+  @IsOptional()
+  @ApiPropertyOptional({
     description: '미디어 파일 배열 (form-data: media_files)',
-    required: false,
     type: 'array',
     items: {
       type: 'string',

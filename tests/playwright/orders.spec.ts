@@ -57,10 +57,34 @@ async function createUser() {
 }
 
 async function cleanupUser(id: string) {
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)',
+    [id],
+  );
+  await client.query('DELETE FROM orders WHERE user_id = $1', [id]);
   await client.query('DELETE FROM users WHERE id = $1', [id]);
 }
 
 async function createProductTimeCapsule() {
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
+  await client.query('DELETE FROM orders WHERE product_id = $1', [
+    TIME_CAPSULE_PRODUCT_ID,
+  ]);
   await client.query('DELETE FROM products WHERE id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -74,6 +98,13 @@ async function createProductTimeCapsule() {
 }
 
 async function createProductWrongType() {
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    [WRONG_PRODUCT_ID],
+  );
+  await client.query('DELETE FROM orders WHERE product_id = $1', [
+    WRONG_PRODUCT_ID,
+  ]);
   await client.query('DELETE FROM products WHERE id = $1', [WRONG_PRODUCT_ID]);
   await client.query(
     `
@@ -85,6 +116,14 @@ async function createProductWrongType() {
 }
 
 async function cleanupProducts() {
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id IN ($1, $2))',
+    [TIME_CAPSULE_PRODUCT_ID, WRONG_PRODUCT_ID],
+  );
+  await client.query('DELETE FROM orders WHERE product_id IN ($1, $2)', [
+    TIME_CAPSULE_PRODUCT_ID,
+    WRONG_PRODUCT_ID,
+  ]);
   await client.query('DELETE FROM products WHERE id IN ($1, $2)', [
     TIME_CAPSULE_PRODUCT_ID,
     WRONG_PRODUCT_ID,
@@ -92,6 +131,10 @@ async function cleanupProducts() {
 }
 
 async function cleanupOrders() {
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id IN ($1, $2))',
+    [TIME_CAPSULE_PRODUCT_ID, WRONG_PRODUCT_ID],
+  );
   await client.query('DELETE FROM orders WHERE product_id IN ($1, $2)', [
     TIME_CAPSULE_PRODUCT_ID,
     WRONG_PRODUCT_ID,

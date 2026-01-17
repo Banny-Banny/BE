@@ -8,11 +8,15 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
 const DB_CONFIG = {
-  host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5432),
-  user: process.env.DB_USERNAME ?? '',
-  password: process.env.DB_PASSWORD ?? '',
-  database: process.env.DB_DATABASE ?? '',
+  host: process.env.TEST_DB_HOST ?? process.env.DB_HOST ?? 'localhost',
+  port: Number(process.env.TEST_DB_PORT ?? process.env.DB_PORT ?? 5432),
+  user: process.env.TEST_DB_USERNAME ?? process.env.DB_USERNAME ?? 'postgres',
+  password:
+    process.env.TEST_DB_PASSWORD ?? process.env.DB_PASSWORD ?? 'postgres',
+  database:
+    process.env.TEST_DB_DATABASE ??
+    process.env.DB_DATABASE ??
+    'banny_banny_test',
 };
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
@@ -41,6 +45,48 @@ async function createUser() {
 }
 
 async function cleanupUser(id: string) {
+  await client.query(
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.user_id = $1
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.user_id = $1
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM payment_cancels
+    WHERE payment_id IN (
+      SELECT id FROM payments
+      WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    `
+    DELETE FROM payments
+    WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    `,
+    [id],
+  );
+  await client.query('DELETE FROM orders WHERE user_id = $1', [id]);
   await client.query('DELETE FROM users WHERE id = $1', [id]);
 }
 
@@ -65,10 +111,24 @@ async function cleanupProducts() {
 
 async function cleanupOrdersAndPayments() {
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders)
+    )
+    `,
   );
   await client.query(
     'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
@@ -138,14 +198,21 @@ test.describe('Step Room Creation', () => {
     expect(approveBody.step_room.room_id).toBeTruthy();
     expect(approveBody.step_room.invite_code).toBeTruthy();
     expect(approveBody.step_room.invite_code).toHaveLength(6);
-    expect(approveBody.step_room.capsule_name).toBe('나의 타임캡슐');
+    expect(approveBody.step_room.capsule_name).toBe('My Time Capsule');
     expect(approveBody.step_room.deadline).toBeTruthy();
     expect(approveBody.step_room.participant_count).toBe(3);
     expect(approveBody.step_room.current_participants).toBe(1); // 방장만 자동 배정
 
     // DB에서 캡슐 검증
     const capsuleRes = await client.query(
-      'SELECT id, invite_code, deadline, room_status, view_limit FROM capsules WHERE order_id = $1',
+      `SELECT tc.capsule_id,
+              tc.invite_code,
+              tc.deadline,
+              tc.room_status,
+              o.headcount
+       FROM time_capsules tc
+       JOIN orders o ON o.id = tc.order_id
+       WHERE tc.order_id = $1`,
       [orderId],
     );
     expect(capsuleRes.rowCount).toBe(1);
@@ -153,12 +220,12 @@ test.describe('Step Room Creation', () => {
     expect(capsule.invite_code).toHaveLength(6);
     expect(capsule.deadline).toBeTruthy();
     expect(capsule.room_status).toBe('WAITING');
-    expect(capsule.view_limit).toBe(3);
+    expect(capsule.headcount).toBe(3);
 
     // 참여 슬롯 검증
     const slotsRes = await client.query(
       'SELECT * FROM capsule_participant_slots WHERE capsule_id = $1 ORDER BY slot_index',
-      [capsule.id],
+      [capsule.capsule_id],
     );
     expect(slotsRes.rowCount).toBe(3);
 
@@ -191,7 +258,7 @@ test.describe('Step Room Creation', () => {
     // 두 번째 결제 시도 (실제로는 이미 PAID 상태라 에러가 발생하거나, 기존 캡슐 반환)
     // 이 테스트는 중복 생성 방지 로직을 확인하기 위한 것
     const capsuleRes = await client.query(
-      'SELECT COUNT(*) as count FROM capsules WHERE order_id = $1',
+      'SELECT COUNT(*) as count FROM time_capsules WHERE order_id = $1',
       [orderId],
     );
     expect(parseInt(String(capsuleRes.rows[0].count))).toBe(1);
@@ -220,13 +287,13 @@ test.describe('Step Room Query APIs', () => {
 
     // 초대 코드로 조회
     const queryRes = await api.get(
-      `/api/capsules/step-rooms?invite_code=${inviteCode}`,
+      `/api/capsules/step-rooms/by-code?invite_code=${inviteCode}`,
     );
 
     expect(queryRes.status()).toBe(200);
     const queryBody = await queryRes.json();
     expect(queryBody.room_id).toBe(approveBody.step_room.room_id);
-    expect(queryBody.capsule_name).toBe('나의 타임캡슐');
+    expect(queryBody.capsule_name).toBe('My Time Capsule');
     expect(queryBody.participant_count).toBe(4);
     expect(queryBody.current_participants).toBe(1); // 방장만 배정됨
     expect(queryBody.status).toBe('WAITING');
@@ -253,13 +320,13 @@ test.describe('Step Room Query APIs', () => {
 
     // 소문자로 조회
     const queryRes1 = await api.get(
-      `/api/capsules/step-rooms?invite_code=${inviteCode.toLowerCase()}`,
+      `/api/capsules/step-rooms/by-code?invite_code=${inviteCode.toLowerCase()}`,
     );
     expect(queryRes1.status()).toBe(200);
 
     // 대문자로 조회
     const queryRes2 = await api.get(
-      `/api/capsules/step-rooms?invite_code=${inviteCode.toUpperCase()}`,
+      `/api/capsules/step-rooms/by-code?invite_code=${inviteCode.toUpperCase()}`,
     );
     expect(queryRes2.status()).toBe(200);
 
@@ -272,7 +339,7 @@ test.describe('Step Room Query APIs', () => {
 
   test('존재하지 않는 초대 코드는 404 에러를 반환한다', async () => {
     const queryRes = await api.get(
-      '/api/capsules/step-rooms?invite_code=INVALID',
+      '/api/capsules/step-rooms/by-code?invite_code=ABC123',
     );
     expect(queryRes.status()).toBe(404);
   });
@@ -301,7 +368,7 @@ test.describe('Step Room Query APIs', () => {
     expect(detailRes.status()).toBe(200);
     const detailBody = await detailRes.json();
     expect(detailBody.room_id).toBe(roomId);
-    expect(detailBody.capsule_name).toBe('나의 타임캡슐');
+    expect(detailBody.capsule_name).toBe('My Time Capsule');
     expect(detailBody.slots).toHaveLength(3);
 
     // 첫 번째 슬롯 검증 (방장)
@@ -372,15 +439,15 @@ test.describe('Step Room Query APIs', () => {
 
     // 기본 정보 검증
     expect(settingsBody.room_id).toBe(roomId);
-    expect(settingsBody.capsule_name).toBe('나의 타임캡슐');
+    expect(settingsBody.capsule_name).toBe('My Time Capsule');
     expect(settingsBody.open_date).toBeTruthy();
     expect(settingsBody.open_date).toMatch(/^\d{4}-\d{2}-\d{2}$/); // YYYY-MM-DD 형식
 
     // 참여 인원 검증
     expect(settingsBody.max_participants).toBe(4);
 
-    // 1인당 사진 개수 계산 검증 (photo_count=5, headcount=4)
-    expect(settingsBody.max_images_per_person).toBe(1); // Math.floor(5/4) = 1
+    // 1인당 사진 개수는 주문의 photo_count 값 그대로
+    expect(settingsBody.max_images_per_person).toBe(5);
 
     // 미디어 타입 허용 여부 검증
     expect(settingsBody.has_music).toBe(true);
@@ -429,8 +496,8 @@ test.describe('Step Room Query APIs', () => {
     expect(settingsRes.status()).toBe(200);
     const settingsBody = await settingsRes.json();
 
-    // 3 / 2 = 1 (Math.floor)
-    expect(settingsBody.max_images_per_person).toBe(1);
+    // 1인당 사진 개수는 주문의 photo_count 값 그대로
+    expect(settingsBody.max_images_per_person).toBe(3);
     expect(settingsBody.has_music).toBe(false);
     expect(settingsBody.has_video).toBe(true);
 
@@ -513,10 +580,10 @@ test.describe('Step Room with Toss Payments', () => {
 
     // DB에서 슬롯 검증
     const capsuleRes = await client.query(
-      'SELECT id FROM capsules WHERE order_id = $1',
+      'SELECT capsule_id FROM time_capsules WHERE order_id = $1',
       [orderId],
     );
-    const capsuleId = capsuleRes.rows[0].id;
+    const capsuleId = capsuleRes.rows[0].capsule_id;
 
     const slotsRes = await client.query(
       'SELECT COUNT(*) as count FROM capsule_participant_slots WHERE capsule_id = $1',

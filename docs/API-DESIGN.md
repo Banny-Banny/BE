@@ -1,8 +1,8 @@
 # Banny-Banny API 설계 문서
 
-> **작성일**: 2026-01-13  
+> **작성일**: 2026-01-17  
 > **프로젝트**: Banny-Banny 타임캡슐 서비스 백엔드  
-> **버전**: 1.0
+> **버전**: 1.1
 
 ---
 
@@ -168,8 +168,10 @@ export class CreateCapsuleDto {
   @MaxLength(500)
   content?: string;
 
-  @IsUUID()
-  product_id: string;
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  view_limit?: number; // 0이면 무제한
 
   @IsNumber()
   @Min(-90)
@@ -180,6 +182,8 @@ export class CreateCapsuleDto {
   @Min(-180)
   @Max(180)
   longitude: number;
+
+  // open_at, product_id는 레거시 입력값(사용하지 않음)
 }
 ```
 
@@ -242,16 +246,17 @@ async getMyProfile(@CurrentUser() user: User) {
 
 **기능**:
 - 이스터에그 생성/조회 (위치 기반)
-- 타임캡슐 생성/조회 (그룹 참여)
+- 타임캡슐 조회 (참여자 전용)
 - 캡슐 발견 기록 (조회 로그)
 - 슬롯 관리 (생성 가능한 개수 제한)
 - Step Room (타임캡슐 작성 대기실)
+- 캡슐 타입 분리: 공통 캡슐 + 타임캡슐 + 이스터에그
 
 **엔드포인트**:
 
 #### 이스터에그 (Capsules)
 - `GET /api/capsules` - 위치 기반 캡슐 목록 (반경 검색)
-- `POST /api/capsules` - 이스터에그 생성
+- `POST /api/capsules` - 이스터에그 생성 (open_at 미허용)
 - `GET /api/capsules/slots` - 남은 슬롯 조회
 - `POST /api/capsules/slots/reset` - 슬롯 초기화
 - `GET /api/capsules/my-eggs?type=PLANTED|FOUND` - 내 이스터에그 목록
@@ -264,16 +269,226 @@ async getMyProfile(@CurrentUser() user: User) {
 - `GET /api/timecapsules/:id` - 타임캡슐 조회 (참여자만)
 
 #### Step Room (대기실)
-- `POST /api/step-rooms` - 대기실 생성
-- `GET /api/step-rooms/:inviteCode/details` - 대기실 정보 조회
-- `POST /api/step-rooms/:inviteCode/join` - 대기실 참여
-- `POST /api/step-rooms/:inviteCode/slots/:slotIndex/save` - 콘텐츠 저장
-- `POST /api/step-rooms/:inviteCode/submit` - 최종 제출 (방장)
+- `POST /api/capsules/step-rooms/create` - 대기실 생성 (결제 완료 주문)
+- `GET /api/capsules/step-rooms/by-code?invite_code=XXXXXX` - 초대 코드 조회
+- `GET /api/capsules/step-rooms/:capsuleId` - 대기실 상세 조회 (참여자 전용)
+- `GET /api/capsules/step-rooms/:capsuleId/settings` - 대기실 설정 조회
+- `POST /api/capsules/step-rooms/:capsuleId/join` - 대기실 참여
+- `POST /api/capsules/step-rooms/:capsuleId/my-content` - 콘텐츠 저장
+- `POST /api/capsules/step-rooms/:capsuleId/submit` - 최종 제출 (방장)
 
 **핵심 로직**:
 - **위치 기반 필터링**: PostGIS를 활용한 반경 검색
 - **접근 제어**: 본인 캡슐은 언제든지 조회, 타인 캡슐은 300m 반경 + 친구 관계 필요
 - **슬롯 제한**: 사용자당 이스터에그 3개 제한 (상품 구매로 확장 가능)
+- **타임캡슐 결제 분리**: 결제 관련 필드는 `time_capsules`로 이동
+
+**최근 변경 요약**:
+- `capsules`는 공통 필드만 유지하고, 타임캡슐/이스터에그 전용 필드는 분리 테이블로 이동
+- 이스터에그 생성 시 `open_at`는 더 이상 허용하지 않음 (요청 시 400)
+- 스텝룸 API 경로가 `/api/capsules/step-rooms/*`로 통일됨
+- `product_id`는 이스터에그 테이블에서 제거됨 (요청 DTO는 레거시 입력만 허용)
+
+#### 요청/응답 예시
+
+**1) 이스터에그 생성**
+```
+POST /api/capsules
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+title: "응원의 메시지"
+content: "오늘도 힘내!"
+view_limit: 3
+latitude: 37.5665
+longitude: 126.978
+media_ids: ["550e8400-e29b-41d4-a716-446655440000"]
+```
+
+```
+201 Created
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "응원의 메시지",
+  "open_at": null,
+  "is_locked": false,
+  "view_limit": 3,
+  "media_items": [
+    {
+      "media_id": "550e8400-e29b-41d4-a716-446655440000",
+      "type": "IMAGE",
+      "object_key": "media/user-id/IMAGE/uuid.jpg"
+    }
+  ],
+  "text_blocks": null
+}
+```
+
+**2) 캡슐 상세 조회 (이스터에그)**
+```
+GET /api/capsules/:id?lat=37.5665&lng=126.978
+Authorization: Bearer <token>
+```
+
+```
+200 OK
+{
+  "id": "capsule-uuid",
+  "title": "응원의 메시지",
+  "content": "오늘도 힘내!",
+  "open_at": null,
+  "is_locked": false,
+  "view_limit": 3,
+  "view_count": 1,
+  "media_items": [],
+  "product": null,
+  "latitude": 37.5665,
+  "longitude": 126.978,
+  "text_blocks": null,
+  "author": { "id": "user-uuid", "nickname": "홍길동", "profile_img": null },
+  "viewers": [],
+  "created_at": "2026-01-17T10:00:00.000Z"
+}
+```
+
+**3) 대기실 생성 (결제 완료 주문)**
+```
+POST /api/capsules/step-rooms/create
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "order_id": "order-uuid" }
+```
+
+```
+201 Created
+{
+  "capsule_id": "capsule-uuid",
+  "invite_code": "ABC123",
+  "title": "나의 타임캡슐",
+  "open_date": "2026-02-01T00:00:00.000Z",
+  "deadline": "2026-01-18T12:00:00.000Z",
+  "max_participants": 4,
+  "current_participants": 1,
+  "status": "WAITING",
+  "created_at": "2026-01-17T10:00:00.000Z",
+  "share_link": "timeegg://room/join?invite_code=ABC123"
+}
+```
+
+**4) 대기실 참여**
+```
+POST /api/capsules/step-rooms/:capsuleId/join
+Authorization: Bearer <token>
+
+{ "invite_code": "ABC123" }
+```
+
+```
+201 Created
+{
+  "success": true,
+  "room_id": "capsule-uuid",
+  "slot_number": 2,
+  "nickname": "김철수",
+  "joined_at": "2026-01-17T10:10:00.000Z"
+}
+```
+
+**5) 타임캡슐 조회 (참여자 전용)**
+```
+GET /api/timecapsules/:capsuleId?user_id=participating-user-uuid
+```
+
+```
+200 OK
+{
+  "id": "capsule-uuid",
+  "title": "나의 타임캡슐",
+  "open_at": "2026-02-01T00:00:00.000Z",
+  "is_locked": false,
+  "stats": {
+    "total_slots": 4,
+    "current_participants": 4
+  },
+  "slots": [
+    {
+      "slot_index": 0,
+      "user_id": "user-uuid",
+      "nickname": "홍길동",
+      "content": "안녕!",
+      "images_ids": [],
+      "music_id": null,
+      "video_id": null
+    }
+  ]
+}
+```
+
+**6) 대기실 콘텐츠 저장**
+```
+POST /api/capsules/step-rooms/:capsuleId/my-content
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+text_message: "안녕하세요!"
+images: (binary[])  // 선택
+music: (binary)     // 선택
+video: (binary)     // 선택
+```
+
+```
+201 Created
+{
+  "success": true,
+  "data": {
+    "user_id": "user-uuid",
+    "nickname": "홍길동",
+    "status": "COMPLETED",
+    "saved_at": "2026-01-17T10:30:00.000Z",
+    "uploaded_images": 2,
+    "uploaded_music": false,
+    "uploaded_video": false
+  }
+}
+```
+
+**7) 대기실 최종 제출**
+```
+POST /api/capsules/step-rooms/:capsuleId/submit
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "latitude": 37.5665,
+  "longitude": 126.978
+}
+```
+
+```
+201 Created
+{
+  "success": true,
+  "data": {
+    "capsule_id": "capsule-uuid",
+    "status": "BURIED",
+    "location": {
+      "latitude": 37.5665,
+      "longitude": 126.978,
+      "address": "서울특별시 중구 세종대로 110"
+    },
+    "buried_at": "2026-01-17T10:40:00.000Z",
+    "open_date": "2026-02-01T00:00:00.000Z",
+    "participants": 4,
+    "is_auto_submitted": false
+  }
+}
+```
+
+**레거시 필드 처리 가이드**:
+- `open_at`: 이스터에그 생성 API에서 사용하지 않음 (요청 시 400)
+- `product_id`: 이스터에그 테이블에는 저장되지 않음. 레거시 호환을 위한 입력만 허용
+- `media_urls`: 기존 호환용으로 유지되며, 신규 구현은 `media_item_ids` 사용 권장
 
 ---
 
@@ -508,11 +723,13 @@ async getProfile(@CurrentUser() user: User) {
 | **Timecapsules** ||||
 | GET | `/api/timecapsules/:id` | 타임캡슐 조회 | ✅ |
 | **Step Rooms** ||||
-| POST | `/api/step-rooms` | 대기실 생성 | ✅ |
-| GET | `/api/step-rooms/:inviteCode/details` | 대기실 정보 | ✅ |
-| POST | `/api/step-rooms/:inviteCode/join` | 대기실 참여 | ✅ |
-| POST | `/api/step-rooms/:inviteCode/slots/:slotIndex/save` | 콘텐츠 저장 | ✅ |
-| POST | `/api/step-rooms/:inviteCode/submit` | 최종 제출 | ✅ |
+| POST | `/api/capsules/step-rooms/create` | 대기실 생성 | ✅ |
+| GET | `/api/capsules/step-rooms/by-code` | 초대 코드로 조회 | ✅ |
+| GET | `/api/capsules/step-rooms/:capsuleId` | 대기실 상세 조회 | ✅ |
+| GET | `/api/capsules/step-rooms/:capsuleId/settings` | 대기실 설정 조회 | ✅ |
+| POST | `/api/capsules/step-rooms/:capsuleId/join` | 대기실 참여 | ✅ |
+| POST | `/api/capsules/step-rooms/:capsuleId/my-content` | 콘텐츠 저장 | ✅ |
+| POST | `/api/capsules/step-rooms/:capsuleId/submit` | 최종 제출 | ✅ |
 | **Orders** ||||
 | POST | `/api/orders` | 주문 생성 | ✅ |
 | GET | `/api/orders/:id` | 주문 조회 | ✅ |
@@ -556,6 +773,7 @@ async getProfile(@CurrentUser() user: User) {
 - phone_number (VARCHAR, UNIQUE)
 - email (VARCHAR, UNIQUE)
 - nickname (VARCHAR, NOT NULL)
+- name (VARCHAR, NULL)  // 실명 (본인인증 시 사용)
 - profile_img (VARCHAR)
 - egg_slots (INTEGER, DEFAULT 3)
 - friend_consent (BOOLEAN)
@@ -568,28 +786,47 @@ async getProfile(@CurrentUser() user: User) {
 - updated_at (TIMESTAMP)
 ```
 
-#### 2. **capsules** - 타임캡슐/이스터에그
+#### 2. **capsules** - 공통 캡슐
 
 ```sql
 - id (UUID, PK)
 - user_id (UUID, FK → users)
-- product_id (UUID, FK → products, NULLABLE)
-- order_id (UUID, FK → orders, NULLABLE)
+- capsule_type (ENUM: TIME_CAPSULE, EASTER_EGG)
 - title (VARCHAR(100))
 - content (TEXT)
 - latitude (DECIMAL, NULLABLE)
 - longitude (DECIMAL, NULLABLE)
-- open_at (TIMESTAMP, NOT NULL)
-- is_locked (BOOLEAN)
-- view_limit (INTEGER)
-- view_count (INTEGER, DEFAULT 0)
-- is_deleted (BOOLEAN, DEFAULT false)
+- media_item_ids (UUID[], NULLABLE)
+- media_types (ENUM[], NULLABLE)
+- text_blocks (JSONB, NULLABLE)
 - created_at (TIMESTAMP)
 - updated_at (TIMESTAMP)
 - deleted_at (TIMESTAMP)
 ```
 
-#### 3. **capsule_entries** - 타임캡슐 콘텐츠
+#### 3. **time_capsules** - 타임캡슐 전용
+
+```sql
+- capsule_id (UUID, PK, FK → capsules)
+- order_id (UUID, FK → orders)
+- open_at (TIMESTAMP)
+- is_locked (BOOLEAN)
+- invite_code (VARCHAR(6), UNIQUE)
+- deadline (TIMESTAMP)
+- room_status (ENUM: WAITING, COMPLETED, EXPIRED, BURIED)
+- buried_at (TIMESTAMP)
+- is_auto_submitted (BOOLEAN)
+```
+
+#### 4. **easter_eggs** - 이스터에그 전용
+
+```sql
+- capsule_id (UUID, PK, FK → capsules)
+- view_limit (INTEGER)
+- view_count (INTEGER)
+```
+
+#### 5. **capsule_entries** - 타임캡슐 콘텐츠
 
 ```sql
 - id (UUID, PK)
@@ -600,7 +837,7 @@ async getProfile(@CurrentUser() user: User) {
 - created_at (TIMESTAMP)
 ```
 
-#### 4. **capsule_participant_slots** - 타임캡슐 참여자 슬롯
+#### 6. **capsule_participant_slots** - 타임캡슐 참여자 슬롯
 
 ```sql
 - id (UUID, PK)
@@ -612,7 +849,7 @@ async getProfile(@CurrentUser() user: User) {
 - created_at (TIMESTAMP)
 ```
 
-#### 5. **products** - 상품
+#### 7. **products** - 상품
 
 ```sql
 - id (UUID, PK)
@@ -627,7 +864,7 @@ async getProfile(@CurrentUser() user: User) {
 - updated_at (TIMESTAMP)
 ```
 
-#### 6. **orders** - 주문
+#### 8. **orders** - 주문
 
 ```sql
 - id (UUID, PK)
@@ -645,7 +882,7 @@ async getProfile(@CurrentUser() user: User) {
 - updated_at (TIMESTAMP)
 ```
 
-#### 7. **payments** - 결제
+#### 9. **payments** - 결제
 
 ```sql
 - id (UUID, PK)
@@ -664,7 +901,7 @@ async getProfile(@CurrentUser() user: User) {
 - created_at (TIMESTAMP)
 ```
 
-#### 8. **media** - 미디어 파일
+#### 10. **media** - 미디어 파일
 
 ```sql
 - id (UUID, PK)
@@ -676,7 +913,7 @@ async getProfile(@CurrentUser() user: User) {
 - created_at (TIMESTAMP)
 ```
 
-#### 9. **capsule_access_logs** - 캡슐 조회 로그
+#### 11. **capsule_access_logs** - 캡슐 조회 로그
 
 ```sql
 - id (UUID, PK)
@@ -687,7 +924,7 @@ async getProfile(@CurrentUser() user: User) {
 - accessed_at (TIMESTAMP)
 ```
 
-#### 10. **friendships** - 친구 관계
+#### 12. **friendships** - 친구 관계
 
 ```sql
 - id (UUID, PK)
@@ -907,6 +1144,7 @@ http://localhost:3000/api/docs
 - **Auth**: 인증/로그인
 - **Capsules**: 이스터에그
 - **Timecapsules**: 타임캡슐
+- **Capsules - Step Room**: 대기실(스텝룸)
 - **Orders**: 주문
 - **Payments**: 결제
 - **Media**: 파일 업로드

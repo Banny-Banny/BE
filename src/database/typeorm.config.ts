@@ -2,8 +2,11 @@ import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import {
   User,
+  AdminUser,
   Product,
   Capsule,
+  TimeCapsule,
+  EasterEgg,
   CapsuleAccessLog,
   Order,
   Payment,
@@ -63,8 +66,11 @@ const dataSource = new DataSource({
   uuidExtension: 'pgcrypto',
   entities: [
     User,
+    AdminUser,
     Product,
     Capsule,
+    TimeCapsule,
+    EasterEgg,
     CapsuleAccessLog,
     CapsuleParticipantSlot,
     CapsuleEntry,

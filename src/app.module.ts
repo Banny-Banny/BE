@@ -10,13 +10,15 @@ import { PaymentsModule } from './payments/payments.module';
 import { MediaModule } from './media/media.module';
 import { MeModule } from './me/me.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
     // 환경 변수 설정 (전역)
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: process.env.ENV_FILE_PATH ?? '.env',
+      ignoreEnvFile: process.env.IGNORE_ENV_FILE === 'true',
     }),
     // 데이터베이스 모듈
     DatabaseModule,
@@ -31,6 +33,8 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     MeModule,
     // 온보딩 모듈
     OnboardingModule,
+    // 관리자 모듈
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

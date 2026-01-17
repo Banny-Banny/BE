@@ -68,10 +68,17 @@ async function createCapsule(userId: string) {
   const capsuleId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, title, latitude, longitude, view_limit, created_at)
-    VALUES ($1, $2, 'e2e-capsule', 37.5665, 126.9780, 0, NOW())
+    INSERT INTO capsules (id, user_id, capsule_type, title, latitude, longitude, created_at)
+    VALUES ($1, $2, 'EASTER_EGG', 'e2e-capsule', 37.5665, 126.9780, NOW())
     `,
     [capsuleId, userId],
+  );
+  await client.query(
+    `
+    INSERT INTO easter_eggs (capsule_id, view_limit, view_count)
+    VALUES ($1, 0, 0)
+    `,
+    [capsuleId],
   );
   return capsuleId;
 }
@@ -109,8 +116,8 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
       // totalSlots는 항상 3으로 고정
       expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(0);
-      // remainingSlots는 user.eggSlots 값 (10)
-      expect(body.remainingSlots).toBe(10);
+      // remainingSlots는 totalSlots에서 사용 중 슬롯을 뺀 값
+      expect(body.remainingSlots).toBe(3);
 
       // 모든 값이 number 타입인지 확인
       expect(typeof body.totalSlots).toBe('number');
@@ -143,13 +150,13 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: totalSlots = 3 (고정), usedSlots = 5, remainingSlots = 5
+      // then: totalSlots = 3 (고정), usedSlots = 3, remainingSlots = 0
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
       expect(body.totalSlots).toBe(3);
-      expect(body.usedSlots).toBe(5);
-      expect(body.remainingSlots).toBe(5);
+      expect(body.usedSlots).toBe(3);
+      expect(body.remainingSlots).toBe(0);
     } finally {
       await cleanupUser(userId);
     }
@@ -200,13 +207,13 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: totalSlots = 3 (고정), usedSlots = 0, remainingSlots = 10
+      // then: totalSlots = 3 (고정), usedSlots = 0, remainingSlots = 3
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
       expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(0);
-      expect(body.remainingSlots).toBe(10);
+      expect(body.remainingSlots).toBe(3);
     } finally {
       await cleanupUser(userId);
     }
@@ -233,13 +240,13 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: totalSlots = 3 (고정), usedSlots = 8, remainingSlots = 7
+      // then: totalSlots = 3 (고정), usedSlots = 3, remainingSlots = 0
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
       expect(body.totalSlots).toBe(3);
-      expect(body.usedSlots).toBe(8);
-      expect(body.remainingSlots).toBe(7);
+      expect(body.usedSlots).toBe(3);
+      expect(body.remainingSlots).toBe(0);
     } finally {
       await cleanupUser(userId);
     }
@@ -273,13 +280,13 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         },
       });
 
-      // then: totalSlots = 3 (고정), usedSlots = 2 (삭제된 1개 제외), remainingSlots = 7
+      // then: totalSlots = 3 (고정), usedSlots = 2 (삭제된 1개 제외), remainingSlots = 1
       expect(response.ok()).toBeTruthy();
       const body = await response.json();
 
       expect(body.totalSlots).toBe(3);
       expect(body.usedSlots).toBe(2); // 3개 생성했지만 1개 삭제됨
-      expect(body.remainingSlots).toBe(7); // 10 - 3 = 7
+      expect(body.remainingSlots).toBe(1); // 3 - 2 = 1
     } finally {
       await cleanupUser(userId);
     }
@@ -404,8 +411,8 @@ test.describe('GET /api/capsules/slots - 남은 캡슐 슬롯 조회', () => {
         const body = await response.json();
 
         expect(body.totalSlots).toBe(3);
-        expect(body.usedSlots).toBe(5);
-        expect(body.remainingSlots).toBe(5);
+        expect(body.usedSlots).toBe(3);
+        expect(body.remainingSlots).toBe(0);
       }
     } finally {
       await cleanupUser(userId);

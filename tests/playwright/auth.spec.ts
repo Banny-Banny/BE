@@ -76,22 +76,85 @@ async function createProduct(name = 'test-product', price = 1000) {
 }
 
 async function cleanupProduct(id: string) {
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [id],
+  );
+  await client.query(
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    [id],
+  );
+  await client.query('DELETE FROM orders WHERE product_id = $1', [id]);
   await client.query('DELETE FROM products WHERE id = $1', [id]);
 }
 
-async function createCapsule(
+async function createEasterEggCapsule(
   userId: string,
-  productId: string | null = null,
   lat = 37.5665,
   lng = 126.978,
 ) {
   const capsuleId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, product_id, title, content, latitude, longitude, view_limit, view_count, is_locked, open_at)
-    VALUES ($1, $2, $3, 'test capsule', 'test content', $4, $5, 0, 0, true, NOW() + interval '1 day')
+    INSERT INTO capsules (id, user_id, capsule_type, title, content, latitude, longitude)
+    VALUES ($1, $2, 'EASTER_EGG', 'test capsule', 'test content', $3, $4)
     `,
-    [capsuleId, userId, productId, lat, lng],
+    [capsuleId, userId, lat, lng],
+  );
+  await client.query(
+    `
+    INSERT INTO easter_eggs (capsule_id, view_limit, view_count)
+    VALUES ($1, 0, 0)
+    `,
+    [capsuleId],
+  );
+  return capsuleId;
+}
+
+async function createTimeCapsule(userId: string, productId: string) {
+  const capsuleId = crypto.randomUUID();
+  const orderId = crypto.randomUUID();
+  await client.query(
+    `
+    INSERT INTO orders (
+      id,
+      user_id,
+      product_id,
+      total_amount,
+      time_option,
+      custom_open_at,
+      headcount,
+      photo_count,
+      add_music,
+      add_video,
+      status,
+      created_at
+    )
+    VALUES ($1, $2, $3, 1000, '1_YEAR', NULL, 1, 0, false, false, 'PAID', NOW())
+    `,
+    [orderId, userId, productId],
+  );
+  await client.query(
+    `
+    INSERT INTO capsules (id, user_id, capsule_type, title, content)
+    VALUES ($1, $2, 'TIME_CAPSULE', 'test capsule', 'test content')
+    `,
+    [capsuleId, userId],
+  );
+  await client.query(
+    `
+    INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked)
+    VALUES ($1, $2, NOW() + interval '1 day', true)
+    `,
+    [capsuleId, orderId],
   );
   return capsuleId;
 }
@@ -151,16 +214,16 @@ test('GET /api/auth/me 200: 기본 정보 조회 (캡슐/친구 없음)', async 
 test('GET /api/auth/me 200: 캡슐 통계 포함', async () => {
   const user = await createUser('캡슐유저', 'capsule@example.com');
 
-  // 타임캡슐 2개 생성 (product_id가 있음)
+  // 타임캡슐 2개 생성
   const productId1 = await createProduct('타임캡슐1', 1000);
   const productId2 = await createProduct('타임캡슐2', 2000);
-  await createCapsule(user.id, productId1);
-  await createCapsule(user.id, productId2);
+  await createTimeCapsule(user.id, productId1);
+  await createTimeCapsule(user.id, productId2);
 
-  // 이스터에그 3개 생성 (product_id가 없음)
-  await createCapsule(user.id, null);
-  await createCapsule(user.id, null);
-  await createCapsule(user.id, null);
+  // 이스터에그 3개 생성
+  await createEasterEggCapsule(user.id);
+  await createEasterEggCapsule(user.id);
+  await createEasterEggCapsule(user.id);
 
   const res = await api.get('/api/auth/me', {
     headers: { Authorization: `Bearer ${user.token}` },
@@ -171,8 +234,8 @@ test('GET /api/auth/me 200: 캡슐 통계 포함', async () => {
   expect(body.success).toBe(true);
   expect(body.data.nickname).toBe('캡슐유저');
   expect(body.data.email).toBe('capsule@example.com');
-  expect(body.data.summary.timeCapsuleCount).toBe(2); // product_id가 있는 캡슐
-  expect(body.data.summary.easterEggCount).toBe(3); // product_id가 없는 캡슐
+  expect(body.data.summary.timeCapsuleCount).toBe(2);
+  expect(body.data.summary.easterEggCount).toBe(3);
   expect(body.data.summary.friendCount).toBe(0);
 
   await cleanupProduct(productId1);
@@ -217,13 +280,13 @@ test('GET /api/auth/me 200: 모든 통계 포함 (캡슐 + 친구)', async () =>
   const friend1 = await createUser('친구A');
   const friend2 = await createUser('친구B');
 
-  // 타임캡슐 2개 생성 (product_id가 있음)
+  // 타임캡슐 2개 생성
   const productId = await createProduct('타임캡슐', 1500);
-  await createCapsule(user.id, productId);
-  await createCapsule(user.id, productId);
+  await createTimeCapsule(user.id, productId);
+  await createTimeCapsule(user.id, productId);
 
-  // 이스터에그 1개 생성 (product_id가 없음)
-  await createCapsule(user.id, null);
+  // 이스터에그 1개 생성
+  await createEasterEggCapsule(user.id);
 
   // 친구 추가
   await createFriendship(user.id, friend1.id);
@@ -238,7 +301,7 @@ test('GET /api/auth/me 200: 모든 통계 포함 (캡슐 + 친구)', async () =>
   expect(body.success).toBe(true);
   expect(body.data.nickname).toBe('풀스택유저');
   expect(body.data.email).toBe('fullstack@example.com');
-  expect(body.data.summary.timeCapsuleCount).toBe(2); // product_id가 있는 캡슐
+  expect(body.data.summary.timeCapsuleCount).toBe(2);
   expect(body.data.summary.easterEggCount).toBe(1);
   expect(body.data.summary.friendCount).toBe(2);
 
@@ -327,9 +390,9 @@ test('GET /api/auth/me 200: 삭제된 캡슐은 카운트에서 제외', async (
 
   // 타임캡슐 1개, 이스터에그 2개 생성
   const productId = await createProduct('삭제테스트상품', 1000);
-  const capsule1 = await createCapsule(user.id, productId); // 타임캡슐
-  const capsule2 = await createCapsule(user.id, null); // 이스터에그
-  await createCapsule(user.id, null); // 이스터에그
+  const capsule1 = await createTimeCapsule(user.id, productId); // 타임캡슐
+  const capsule2 = await createEasterEggCapsule(user.id); // 이스터에그
+  await createEasterEggCapsule(user.id); // 이스터에그
 
   // 타임캡슐 1개, 이스터에그 1개 소프트 삭제
   await client.query(
@@ -344,7 +407,7 @@ test('GET /api/auth/me 200: 삭제된 캡슐은 카운트에서 제외', async (
   expect(res.status()).toBe(200);
   const body = await res.json();
   expect(body.success).toBe(true);
-  expect(body.data.summary.timeCapsuleCount).toBe(0); // product_id가 있는 캡슐이 삭제됨
+  expect(body.data.summary.timeCapsuleCount).toBe(0);
   expect(body.data.summary.easterEggCount).toBe(1); // 삭제되지 않은 이스터에그만
 
   await cleanupProduct(productId);

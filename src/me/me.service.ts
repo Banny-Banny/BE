@@ -21,7 +21,7 @@ import {
   CapsuleListItemDto,
   PaginatedCapsuleResponseDto,
 } from './dto/capsule-list-response.dto';
-import { MediaType } from '../common/enums';
+import { CapsuleType, MediaType } from '../common/enums';
 
 /**
  * 마이페이지 서비스
@@ -52,6 +52,7 @@ export class MeService {
       where: { id: userId },
       select: [
         'id',
+        'name',
         'nickname',
         'email',
         'phoneNumber',
@@ -237,13 +238,21 @@ export class MeService {
     // 2. 소유 캡슐 + 참여 캡슐 통합 조회
     const queryBuilder = this.capsuleRepository
       .createQueryBuilder('capsule')
-      .where('capsule.userId = :userId', { userId });
+      .leftJoinAndSelect('capsule.timeCapsule', 'timeCapsule')
+      .where('capsule.userId = :userId', { userId })
+      .andWhere('capsule.capsule_type = :type', {
+        type: CapsuleType.TIME_CAPSULE,
+      });
 
     // 참여 캡슐이 있으면 OR 조건 추가
     if (participatedCapsuleIds.length > 0) {
-      queryBuilder.orWhere('capsule.id IN (:...capsuleIds)', {
-        capsuleIds: participatedCapsuleIds,
-      });
+      queryBuilder.orWhere(
+        '(capsule.id IN (:...capsuleIds) AND capsule.capsule_type = :type)',
+        {
+          capsuleIds: participatedCapsuleIds,
+          type: CapsuleType.TIME_CAPSULE,
+        },
+      );
     }
 
     // 3. 페이지네이션 및 정렬
@@ -256,7 +265,7 @@ export class MeService {
     // 4. 각 캡슐의 참여자 수 및 내 작성 상태 조회
     const capsuleItems = await Promise.all(
       capsules.map(async (capsule) => {
-        const status = capsule.roomStatus || 'WAITING';
+        const status = capsule.timeCapsule?.roomStatus || 'WAITING';
 
         // 참여자 수 계산
         const participantCount = await this.slotRepository.count({
@@ -269,7 +278,7 @@ export class MeService {
         });
 
         // deadline은 capsule 엔티티에 저장되어 있음
-        const deadline: Date | null = capsule.deadline || null;
+        const deadline: Date | null = capsule.timeCapsule?.deadline || null;
 
         // 작성 완료한 참여자 수 (status === 'COMPLETED'인 슬롯)
         const completedCount = await this.slotRepository.count({
@@ -318,7 +327,7 @@ export class MeService {
           id: capsule.id,
           title: capsule.title,
           status,
-          openDate: capsule.openAt,
+          openDate: capsule.timeCapsule?.openAt ?? null,
           participantCount,
           myWriteStatus: !!myEntry,
           createdAt: capsule.createdAt,
@@ -326,7 +335,7 @@ export class MeService {
           completedCount,
           progressPercentage,
           location,
-          buriedAt: capsule.buriedAt || null,
+          buriedAt: capsule.timeCapsule?.buriedAt || null,
           participants: participants.length > 0 ? participants : undefined,
         });
       }),

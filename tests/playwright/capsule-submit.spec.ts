@@ -53,11 +53,25 @@ async function createUser(nickname = 'submit-test-user') {
 
 async function cleanupUser(userId: string) {
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [userId],
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [userId],
   );
   await client.query(
@@ -121,7 +135,7 @@ async function createCapsuleWithOrder(
 
   // 3. 캡슐 수동 생성 (결제 후 자동 생성되지 않으면)
   const capsuleResult = await client.query(
-    `SELECT id FROM capsules WHERE order_id = $1`,
+    `SELECT capsule_id FROM time_capsules WHERE order_id = $1`,
     [orderId],
   );
 
@@ -130,16 +144,14 @@ async function createCapsuleWithOrder(
     capsuleId = crypto.randomUUID();
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     await client.query(
-      `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, is_locked, view_limit, invite_code, deadline, room_status)
-       VALUES ($1, $2, $3, $4, '테스트 캡슐', NOW() + INTERVAL '7 days', true, $5, $6, NOW() + INTERVAL '24 hours', 'WAITING')`,
-      [
-        capsuleId,
-        userId,
-        TIME_CAPSULE_PRODUCT_ID,
-        orderId,
-        headcount,
-        inviteCode,
-      ],
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [capsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [capsuleId, orderId, inviteCode],
     );
 
     // 참여자 생성 및 슬롯 할당
@@ -169,7 +181,7 @@ async function createCapsuleWithOrder(
       );
     }
   } else {
-    capsuleId = capsuleResult.rows[0].id;
+    capsuleId = capsuleResult.rows[0].capsule_id;
   }
 
   return { capsuleId, orderId };
@@ -289,9 +301,18 @@ test.describe('타임캡슐 최종 제출 API', () => {
 
     // 4. DB에서 캡슐 상태 및 콘텐츠 확인
     const capsuleResult = await client.query(
-      `SELECT room_status, buried_at, is_auto_submitted, latitude, longitude, 
-              content, text_blocks, media_item_ids, media_types 
-       FROM capsules WHERE id = $1`,
+      `SELECT tc.room_status,
+              tc.buried_at,
+              tc.is_auto_submitted,
+              c.latitude,
+              c.longitude,
+              c.content,
+              c.text_blocks,
+              c.media_item_ids,
+              c.media_types
+       FROM capsules c
+       JOIN time_capsules tc ON tc.capsule_id = c.id
+       WHERE c.id = $1`,
       [capsuleId],
     );
     expect(capsuleResult.rows[0].room_status).toBe('BURIED');
@@ -497,7 +518,9 @@ test.describe('타임캡슐 최종 제출 API', () => {
 
     // 2. deadline을 과거로 설정 (24시간 경과)
     await client.query(
-      `UPDATE capsules SET deadline = NOW() - INTERVAL '1 hour', room_status = 'WAITING' WHERE id = $1`,
+      `UPDATE time_capsules
+       SET deadline = NOW() - INTERVAL '1 hour', room_status = 'WAITING'
+       WHERE capsule_id = $1`,
       [capsuleId],
     );
 
@@ -505,19 +528,31 @@ test.describe('타임캡슐 최종 제출 API', () => {
     // 실제 크론잡은 CapsulesCronService.handleAutoSubmit()를 호출하지만,
     // 테스트에서는 결과만 확인
     await client.query(
-      `UPDATE capsules 
-       SET latitude = 37.5665, 
-           longitude = 126.978, 
-           room_status = 'BURIED', 
-           buried_at = NOW(), 
-           is_auto_submitted = true 
-       WHERE id = $1 AND deadline < NOW() AND room_status IN ('WAITING', 'COMPLETED')`,
+      `UPDATE capsules
+       SET latitude = 37.5665,
+           longitude = 126.978
+       WHERE id = $1`,
+      [capsuleId],
+    );
+    await client.query(
+      `UPDATE time_capsules
+       SET room_status = 'BURIED',
+           buried_at = NOW(),
+           is_auto_submitted = true
+       WHERE capsule_id = $1 AND deadline < NOW() AND room_status IN ('WAITING', 'COMPLETED')`,
       [capsuleId],
     );
 
     // 4. DB에서 자동 제출 결과 확인
     const capsuleResult = await client.query(
-      `SELECT room_status, is_auto_submitted, latitude, longitude, buried_at FROM capsules WHERE id = $1`,
+      `SELECT tc.room_status,
+              tc.is_auto_submitted,
+              c.latitude,
+              c.longitude,
+              tc.buried_at
+       FROM capsules c
+       JOIN time_capsules tc ON tc.capsule_id = c.id
+       WHERE c.id = $1`,
       [capsuleId],
     );
 

@@ -65,9 +65,18 @@ async function createProductTimeCapsule() {
   await client.query('DELETE FROM capsule_entries');
   await client.query('DELETE FROM capsule_participant_slots');
   await client.query('DELETE FROM capsule_access_logs');
-  await client.query('DELETE FROM capsules WHERE product_id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
   await client.query('DELETE FROM orders WHERE product_id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -87,9 +96,18 @@ async function cleanupProductsAndCapsules() {
   await client.query('DELETE FROM capsule_entries');
   await client.query('DELETE FROM capsule_participant_slots');
   await client.query('DELETE FROM capsule_access_logs');
-  await client.query('DELETE FROM capsules WHERE product_id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
   await client.query('DELETE FROM orders WHERE product_id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
@@ -117,12 +135,17 @@ async function createPaidOrderWithCapsule(
   const capsuleId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, product_id, order_id, title, content, media_urls, media_types,
-                          open_at, is_locked, view_limit, view_count, latitude, longitude)
-    VALUES ($1, $2, $3, $4, 'My Time Capsule', 'Time capsule description', NULL, NULL,
-            NOW() + interval '${openAtInterval}', true, $5, 0, NULL, NULL)
+    INSERT INTO capsules (id, user_id, capsule_type, title, content)
+    VALUES ($1, $2, 'TIME_CAPSULE', 'My Time Capsule', 'Time capsule description')
     `,
-    [capsuleId, userId, TIME_CAPSULE_PRODUCT_ID, orderId, headcount],
+    [capsuleId, userId],
+  );
+  await client.query(
+    `
+    INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked)
+    VALUES ($1, $2, NOW() + interval '${openAtInterval}', true)
+    `,
+    [capsuleId, orderId],
   );
 
   return { orderId, capsuleId };
@@ -270,11 +293,11 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     expect(body.headcount).toBe(3);
     expect(body.created_at).toBeTruthy();
 
-    // 통계 확인
-    expect(body.stats).toBeDefined();
-    expect(body.stats.total_slots).toBe(3);
-    expect(body.stats.filled_slots).toBe(2);
-    expect(body.stats.empty_slots).toBe(1);
+    // 통계 확인 (meta)
+    expect(body.meta).toBeDefined();
+    expect(body.meta.total_slots).toBe(3);
+    expect(body.meta.filled_slots).toBe(2);
+    expect(body.meta.empty_slots).toBe(1);
 
     // 슬롯 확인
     expect(body.slots).toHaveLength(3);
@@ -282,9 +305,8 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     // 슬롯 1 (작성됨) - 잠김이므로 content/미디어 숨김
     expect(body.slots[0].user_id).toBe(owner.id);
     expect(body.slots[0].nickname).toBe('owner');
-    expect(body.slots[0].entry_id).toBeNull(); // capsule_entries 미사용
-    expect(body.slots[0].wrote_at).toBeTruthy();
-    expect(body.slots[0].content).toBeNull(); // ⚠️ 숨김
+    expect(body.slots[0].slot_id).toBeTruthy();
+    expect(body.slots[0].text_message).toBeNull(); // ⚠️ 숨김
     expect(body.slots[0].images_ids).toEqual([]); // ⚠️ 숨김
     expect(body.slots[0].audio_id).toBeNull(); // ⚠️ 숨김
     expect(body.slots[0].video_id).toBeNull(); // ⚠️ 숨김
@@ -292,17 +314,16 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     // 슬롯 2 (작성됨) - 잠김이므로 content/미디어 숨김
     expect(body.slots[1].user_id).toBe(participant.id);
     expect(body.slots[1].nickname).toBe('participant');
-    expect(body.slots[1].entry_id).toBeNull(); // capsule_entries 미사용
-    expect(body.slots[1].wrote_at).toBeTruthy();
-    expect(body.slots[1].content).toBeNull(); // ⚠️ 숨김
+    expect(body.slots[1].slot_id).toBeTruthy();
+    expect(body.slots[1].text_message).toBeNull(); // ⚠️ 숨김
     expect(body.slots[1].images_ids).toEqual([]); // ⚠️ 숨김
     expect(body.slots[1].audio_id).toBeNull(); // ⚠️ 숨김
     expect(body.slots[1].video_id).toBeNull(); // ⚠️ 숨김
 
     // 슬롯 3 (빈 슬롯)
     expect(body.slots[2].user_id).toBeNull();
-    expect(body.slots[2].entry_id).toBeNull();
-    expect(body.slots[2].content).toBeNull();
+    expect(body.slots[2].slot_id).toBeTruthy();
+    expect(body.slots[2].text_message).toBeNull();
     expect(body.slots[2].images_ids).toEqual([]);
     expect(body.slots[2].audio_id).toBeNull();
     expect(body.slots[2].video_id).toBeNull();
@@ -353,11 +374,11 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     expect(body.headcount).toBe(3);
     expect(body.created_at).toBeTruthy();
 
-    // 통계 확인
-    expect(body.stats).toBeDefined();
-    expect(body.stats.total_slots).toBe(3);
-    expect(body.stats.filled_slots).toBe(2);
-    expect(body.stats.empty_slots).toBe(1);
+    // 통계 확인 (meta)
+    expect(body.meta).toBeDefined();
+    expect(body.meta.total_slots).toBe(3);
+    expect(body.meta.filled_slots).toBe(2);
+    expect(body.meta.empty_slots).toBe(1);
 
     // 슬롯 확인
     expect(body.slots).toHaveLength(3);
@@ -365,9 +386,8 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     // 슬롯 1 (작성됨) - 열림이므로 content/미디어 표시
     expect(body.slots[0].user_id).toBe(owner.id);
     expect(body.slots[0].nickname).toBe('owner2');
-    expect(body.slots[0].entry_id).toBeNull(); // capsule_entries 미사용
-    expect(body.slots[0].wrote_at).toBeTruthy();
-    expect(body.slots[0].content).toBe('오너의 비밀 메시지'); // ✅ 표시
+    expect(body.slots[0].slot_id).toBeTruthy();
+    expect(body.slots[0].text_message).toBe('오너의 비밀 메시지'); // ✅ 표시
     expect(body.slots[0].images_ids).toHaveLength(1); // ✅ 표시
     expect(body.slots[0].images_ids[0].media_id).toBe(mediaId1);
     expect(body.slots[0].images_ids[0].object_key).toBeTruthy();
@@ -377,9 +397,8 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     // 슬롯 2 (작성됨) - 열림이므로 content/미디어 표시
     expect(body.slots[1].user_id).toBe(participant.id);
     expect(body.slots[1].nickname).toBe('participant2');
-    expect(body.slots[1].entry_id).toBeNull(); // capsule_entries 미사용
-    expect(body.slots[1].wrote_at).toBeTruthy();
-    expect(body.slots[1].content).toBe('참여자의 추억'); // ✅ 표시
+    expect(body.slots[1].slot_id).toBeTruthy();
+    expect(body.slots[1].text_message).toBe('참여자의 추억'); // ✅ 표시
     expect(body.slots[1].images_ids).toEqual([]);
     expect(body.slots[1].audio_id).toBeTruthy(); // ✅ 표시
     expect(body.slots[1].audio_id.media_id).toBe(mediaId2);
@@ -388,8 +407,8 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
 
     // 슬롯 3 (빈 슬롯)
     expect(body.slots[2].user_id).toBeNull();
-    expect(body.slots[2].entry_id).toBeNull();
-    expect(body.slots[2].content).toBeNull();
+    expect(body.slots[2].slot_id).toBeTruthy();
+    expect(body.slots[2].text_message).toBeNull();
     expect(body.slots[2].images_ids).toEqual([]);
     expect(body.slots[2].audio_id).toBeNull();
     expect(body.slots[2].video_id).toBeNull();
@@ -421,13 +440,13 @@ test.describe('타임캡슐 조회 - 잠금 상태', () => {
     const body = await res.json();
 
     expect(body.is_locked).toBe(true);
-    expect(body.stats.total_slots).toBe(2);
-    expect(body.stats.filled_slots).toBe(0);
-    expect(body.stats.empty_slots).toBe(2);
+    expect(body.meta.total_slots).toBe(2);
+    expect(body.meta.filled_slots).toBe(0);
+    expect(body.meta.empty_slots).toBe(2);
 
     expect(body.slots).toHaveLength(2);
     expect(body.slots[0].user_id).toBeNull();
-    expect(body.slots[0].content).toBeNull();
+    expect(body.slots[0].text_message).toBeNull();
     expect(body.slots[0].images_ids).toEqual([]);
     expect(body.slots[0].audio_id).toBeNull();
     expect(body.slots[0].video_id).toBeNull();

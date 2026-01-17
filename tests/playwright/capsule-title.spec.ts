@@ -83,11 +83,27 @@ async function cleanupProducts() {
 
 async function cleanupOrdersAndCapsules() {
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
     [TIME_CAPSULE_PRODUCT_ID],
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
+    )
+    `,
     [TIME_CAPSULE_PRODUCT_ID],
   );
   await client.query(
@@ -97,6 +113,57 @@ async function cleanupOrdersAndCapsules() {
   await client.query('DELETE FROM orders WHERE product_id = $1', [
     TIME_CAPSULE_PRODUCT_ID,
   ]);
+}
+
+async function createOrder(
+  token: string,
+  data: {
+    product_id: string;
+    time_option: string;
+    headcount: number;
+    photo_count?: number;
+    add_music?: boolean;
+    add_video?: boolean;
+    capsule_title?: string;
+  },
+) {
+  const orderRes = await api.post('/api/orders', {
+    headers: { Authorization: `Bearer ${token}` },
+    data,
+  });
+  if (orderRes.status() !== 201) {
+    console.error('order create', orderRes.status(), await orderRes.text());
+  }
+  expect(orderRes.status()).toBe(201);
+  const body = await orderRes.json();
+  return body.order_id as string;
+}
+
+async function markOrderPaid(orderId: string, token: string) {
+  const statusRes = await api.post(`/api/orders/${orderId}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { status: 'PAID' },
+  });
+  if (statusRes.status() !== 201) {
+    console.error('order status', statusRes.status(), await statusRes.text());
+  }
+  expect(statusRes.status()).toBe(201);
+}
+
+async function createStepRoom(orderId: string, token: string) {
+  const res = await api.post('/api/capsules/step-rooms/create', {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { order_id: orderId },
+  });
+  if (res.status() !== 201) {
+    console.error('step room create', res.status(), await res.text());
+  }
+  expect(res.status()).toBe(201);
+  return (await res.json()) as {
+    capsule_id: string;
+    invite_code: string;
+    title: string;
+  };
 }
 
 test.beforeAll(async () => {
@@ -228,30 +295,24 @@ test.describe('Capsule Title - Step Room Creation', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 (제목 포함) - SKIP_PAYMENT=true이므로 자동으로 PAID 상태가 되고 캡슐 생성됨
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 3,
-        photo_count: 2,
-        add_music: true,
-        capsule_title: 'Summer Vacation 2025',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 3,
+      photo_count: 2,
+      add_music: true,
+      capsule_title: 'Summer Vacation 2025',
     });
-    expect(orderRes.status()).toBe(201);
-    const orderBody = await orderRes.json();
-    const orderId = orderBody.order_id;
-
-    // SKIP_PAYMENT=true이므로 이미 캡슐이 생성되어 있음
-    expect(orderBody.capsule_id).toBeDefined();
-    expect(orderBody.step_room).toBeDefined();
-    expect(orderBody.step_room.capsule_name).toBe('Summer Vacation 2025');
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    expect(stepRoom.title).toBe('Summer Vacation 2025');
 
     // DB에서 캡슐 제목 확인
     const capsuleRes = await client.query(
-      'SELECT title FROM capsules WHERE order_id = $1',
+      `SELECT c.title
+       FROM capsules c
+       JOIN time_capsules tc ON tc.capsule_id = c.id
+       WHERE tc.order_id = $1`,
       [orderId],
     );
     expect(capsuleRes.rows[0].title).toBe('Summer Vacation 2025');
@@ -263,26 +324,22 @@ test.describe('Capsule Title - Step Room Creation', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 (제목 없음) - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 2,
-        photo_count: 1,
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      photo_count: 1,
     });
-    expect(orderRes.status()).toBe(201);
-    const orderBody = await orderRes.json();
-    const orderId = orderBody.order_id;
-
-    // 기본 제목 확인
-    expect(orderBody.step_room.capsule_name).toBe('My Time Capsule');
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    expect(stepRoom.title).toBe('My Time Capsule');
 
     // DB에서 캡슐 제목 확인
     const capsuleRes = await client.query(
-      'SELECT title FROM capsules WHERE order_id = $1',
+      `SELECT c.title
+       FROM capsules c
+       JOIN time_capsules tc ON tc.capsule_id = c.id
+       WHERE tc.order_id = $1`,
       [orderId],
     );
     expect(capsuleRes.rows[0].title).toBe('My Time Capsule');
@@ -294,23 +351,16 @@ test.describe('Capsule Title - Step Room Creation', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 (제목 포함) - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_MONTH',
-        headcount: 4,
-        photo_count: 5,
-        capsule_title: 'Friends Forever',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_MONTH',
+      headcount: 4,
+      photo_count: 5,
+      capsule_title: 'Friends Forever',
     });
-    expect(orderRes.status()).toBe(201);
-    const orderBody = await orderRes.json();
-
-    // 대기실 정보에서 제목 확인
-    expect(orderBody.step_room).toBeDefined();
-    expect(orderBody.step_room.capsule_name).toBe('Friends Forever');
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    expect(stepRoom.title).toBe('Friends Forever');
 
     await cleanupUser(id);
   });
@@ -321,22 +371,19 @@ test.describe('Capsule Title - Step Room API', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 2,
-        capsule_title: 'Weekend Getaway',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      capsule_title: 'Weekend Getaway',
     });
-    const orderBody = await orderRes.json();
-    const inviteCode = orderBody.step_room.invite_code;
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    const inviteCode = stepRoom.invite_code;
 
     // 초대 코드로 조회
     const queryRes = await api.get(
-      `/api/capsules/step-rooms?invite_code=${inviteCode}`,
+      `/api/capsules/step-rooms/by-code?invite_code=${inviteCode}`,
     );
 
     expect(queryRes.status()).toBe(200);
@@ -350,18 +397,15 @@ test.describe('Capsule Title - Step Room API', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_YEAR',
-        headcount: 3,
-        capsule_title: 'New Year Wishes 2025',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_YEAR',
+      headcount: 3,
+      capsule_title: 'New Year Wishes 2025',
     });
-    const orderBody = await orderRes.json();
-    const roomId = orderBody.step_room.room_id;
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    const roomId = stepRoom.capsule_id;
 
     // 대기실 상세 조회
     const detailRes = await api.get(`/api/capsules/step-rooms/${roomId}`, {
@@ -379,21 +423,18 @@ test.describe('Capsule Title - Step Room API', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    // 주문 생성 - SKIP_PAYMENT=true이므로 자동으로 캡슐 생성됨
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 5,
-        photo_count: 5,
-        add_music: true,
-        add_video: true,
-        capsule_title: 'Team Building 2025',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 5,
+      photo_count: 5,
+      add_music: true,
+      add_video: true,
+      capsule_title: 'Team Building 2025',
     });
-    const orderBody = await orderRes.json();
-    const roomId = orderBody.step_room.room_id;
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    const roomId = stepRoom.capsule_id;
 
     // 설정값 조회
     const settingsRes = await api.get(
@@ -416,19 +457,15 @@ test.describe('Capsule Title - Special Characters', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 2,
-        capsule_title: '우리의 소중한 추억',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      capsule_title: '우리의 소중한 추억',
     });
-    const orderBody = await orderRes.json();
-
-    const capsuleName = orderBody.step_room.capsule_name;
-    expect(capsuleName).toBe('우리의 소중한 추억');
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    expect(stepRoom.title).toBe('우리의 소중한 추억');
 
     await cleanupUser(id);
   });
@@ -437,19 +474,15 @@ test.describe('Capsule Title - Special Characters', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 2,
-        capsule_title: '🎉 Happy Birthday 2025 🎂',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      capsule_title: '🎉 Happy Birthday 2025 🎂',
     });
-    const orderBody = await orderRes.json();
-
-    const capsuleName = orderBody.step_room.capsule_name;
-    expect(capsuleName).toBe('🎉 Happy Birthday 2025 🎂');
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    expect(stepRoom.title).toBe('🎉 Happy Birthday 2025 🎂');
 
     await cleanupUser(id);
   });
@@ -458,19 +491,15 @@ test.describe('Capsule Title - Special Characters', () => {
     await createProductTimeCapsule();
     const { id, token } = await createUser();
 
-    const orderRes = await api.post('/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        product_id: TIME_CAPSULE_PRODUCT_ID,
-        time_option: '1_WEEK',
-        headcount: 2,
-        capsule_title: 'Best Friends #2025 @Seoul!',
-      },
+    const orderId = await createOrder(token, {
+      product_id: TIME_CAPSULE_PRODUCT_ID,
+      time_option: '1_WEEK',
+      headcount: 2,
+      capsule_title: 'Best Friends #2025 @Seoul!',
     });
-    const orderBody = await orderRes.json();
-
-    const capsuleName = orderBody.step_room.capsule_name;
-    expect(capsuleName).toBe('Best Friends #2025 @Seoul!');
+    await markOrderPaid(orderId, token);
+    const stepRoom = await createStepRoom(orderId, token);
+    expect(stepRoom.title).toBe('Best Friends #2025 @Seoul!');
 
     await cleanupUser(id);
   });

@@ -237,9 +237,10 @@ test('POST /api/media/upload 201: type 파라미터 명시 (IMAGE)', async () =>
 
   const imageBuffer = Buffer.from('fake-image');
 
-  const res = await api.post('/api/media/upload?type=IMAGE', {
+  const res = await api.post('/api/media/upload', {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
+      type: 'IMAGE',
       file: {
         name: 'image.jpg',
         mimeType: 'image/jpeg',
@@ -298,9 +299,10 @@ test('POST /api/media/upload 400: 잘못된 type 파라미터', async () => {
 
   const imageBuffer = Buffer.from('fake-image');
 
-  const res = await api.post('/api/media/upload?type=INVALID_TYPE', {
+  const res = await api.post('/api/media/upload', {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
+      type: 'INVALID_TYPE',
       file: {
         name: 'image.jpg',
         mimeType: 'image/jpeg',
@@ -389,8 +391,8 @@ test('POST /api/media/upload 201: 자동 타입 감지 (audio/*)', async () => {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
       file: {
-        name: 'sound.wav',
-        mimeType: 'audio/wav',
+        name: 'sound.mp3',
+        mimeType: 'audio/mpeg',
         buffer: audioBuffer,
       },
     },

@@ -63,6 +63,14 @@ export enum RoomStatus {
 }
 
 /**
+ * 캡슐 타입 - 공통 캡슐에서 타입 분리 용도
+ */
+export enum CapsuleType {
+  TIME_CAPSULE = 'TIME_CAPSULE',
+  EASTER_EGG = 'EASTER_EGG',
+}
+
+/**
  * 알림 타입 - 사용자에게 발송되는 알림 종류
  */
 export enum NotificationType {
@@ -75,4 +83,12 @@ export enum NotificationType {
   EGG_DELETED = 'EGG_DELETED', // 에그 소멸 알림
   SYSTEM = 'SYSTEM', // 시스템 공지
   MARKETING = 'MARKETING', // 마케팅 알림
+}
+
+/**
+ * 관리자 역할
+ */
+export enum AdminRole {
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  ADMIN = 'ADMIN',
 }

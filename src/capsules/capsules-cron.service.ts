@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, In, IsNull, Between } from 'typeorm';
 import { Capsule } from '../entities/capsule.entity';
+import { TimeCapsule } from '../entities/time-capsule.entity';
 import { CapsuleParticipantSlot } from '../entities/capsule-participant-slot.entity';
 import { RoomStatus } from '../common/enums';
 import { PushNotificationService } from '../common/services/push-notification.service';
@@ -15,6 +16,8 @@ export class CapsulesCronService {
   constructor(
     @InjectRepository(Capsule)
     private readonly capsuleRepository: Repository<Capsule>,
+    @InjectRepository(TimeCapsule)
+    private readonly timeCapsuleRepository: Repository<TimeCapsule>,
     @InjectRepository(CapsuleParticipantSlot)
     private readonly slotRepository: Repository<CapsuleParticipantSlot>,
     @InjectDataSource()
@@ -32,13 +35,13 @@ export class CapsulesCronService {
     try {
       // 1. deadline 경과 + 미제출 캡슐 조회
       const now = new Date();
-      const expiredCapsules = await this.capsuleRepository.find({
+      const expiredCapsules = await this.timeCapsuleRepository.find({
         where: {
           deadline: LessThan(now),
           roomStatus: In([RoomStatus.WAITING, RoomStatus.COMPLETED]),
-          deletedAt: IsNull(),
+          capsule: { deletedAt: IsNull() },
         },
-        relations: ['order'],
+        relations: { capsule: true },
       });
 
       this.logger.log(`✅ 자동 제출 대상 캡슐: ${expiredCapsules.length}개`);
@@ -48,13 +51,13 @@ export class CapsulesCronService {
       }
 
       // 2. 각 캡슐 자동 매장
-      for (const capsule of expiredCapsules) {
+      for (const timeCapsule of expiredCapsules) {
         try {
-          await this.autoSubmitCapsule(capsule);
-          this.logger.log(`✅ 캡슐 자동 제출 완료: ${capsule.id}`);
+          await this.autoSubmitCapsule(timeCapsule);
+          this.logger.log(`✅ 캡슐 자동 제출 완료: ${timeCapsule.capsuleId}`);
         } catch (error) {
           this.logger.error(
-            `❌ 캡슐 자동 제출 실패: ${capsule.id}`,
+            `❌ 캡슐 자동 제출 실패: ${timeCapsule.capsuleId}`,
             error instanceof Error ? error.stack : error,
           );
         }
@@ -72,9 +75,10 @@ export class CapsulesCronService {
   /**
    * 개별 캡슐 자동 제출
    */
-  private async autoSubmitCapsule(capsule: Capsule): Promise<void> {
+  private async autoSubmitCapsule(timeCapsule: TimeCapsule): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const capsuleRepo = manager.getRepository(Capsule);
+      const timeCapsuleRepo = manager.getRepository(TimeCapsule);
 
       // 1. 방장 슬롯 조회 (향후 구현: 방장이 저장한 위치 사용)
       // const ownerSlot = await manager
@@ -94,13 +98,20 @@ export class CapsulesCronService {
       // }
 
       // 3. 캡슐 매장
+      const capsule = await capsuleRepo.findOne({
+        where: { id: timeCapsule.capsuleId },
+      });
+      if (!capsule) {
+        return;
+      }
       capsule.latitude = latitude;
       capsule.longitude = longitude;
-      capsule.roomStatus = RoomStatus.BURIED;
-      capsule.buriedAt = new Date();
-      capsule.isAutoSubmitted = true;
+      timeCapsule.roomStatus = RoomStatus.BURIED;
+      timeCapsule.buriedAt = new Date();
+      timeCapsule.isAutoSubmitted = true;
 
       await capsuleRepo.save(capsule);
+      await timeCapsuleRepo.save(timeCapsule);
 
       // 4. TODO: 알림 발송 (참여자 전원)
       // await this.sendAutoSubmitNotifications(capsule);
@@ -119,13 +130,13 @@ export class CapsulesCronService {
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
       // 1. 최근 1시간 이내에 공개된 캡슐 조회 (BURIED 상태)
-      const openedCapsules = await this.capsuleRepository.find({
+      const openedCapsules = await this.timeCapsuleRepository.find({
         where: {
           openAt: Between(oneHourAgo, now),
           roomStatus: RoomStatus.BURIED,
-          deletedAt: IsNull(),
+          capsule: { deletedAt: IsNull() },
         },
-        relations: ['user'],
+        relations: { capsule: true },
       });
 
       this.logger.log(`✅ 공개 알림 대상 캡슐: ${openedCapsules.length}개`);
@@ -135,7 +146,11 @@ export class CapsulesCronService {
       }
 
       // 2. 각 캡슐의 소유자에게 알림 전송
-      for (const capsule of openedCapsules) {
+      for (const timeCapsule of openedCapsules) {
+        const capsule = timeCapsule.capsule;
+        if (!capsule) {
+          continue;
+        }
         try {
           await this.pushNotificationService.createAndSendNotification(
             capsule.userId,

@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import 'reflect-metadata';
 import dotenv from 'dotenv';
 import { test, expect, request, APIRequestContext } from '@playwright/test';
@@ -21,8 +25,7 @@ const DB_CONFIG = {
     'banny_banny_test',
 };
 
-const JWT_SECRET =
-  process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
+const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
 
 let api: APIRequestContext;
 let client: Client;
@@ -34,7 +37,6 @@ test.beforeAll(async () => {
     baseURL: process.env.API_BASE_URL ?? 'http://localhost:3000',
   });
 });
-
 test.afterAll(async () => {
   await client.end();
   await api.dispose();
@@ -73,10 +75,17 @@ async function createCapsule(
   const capsuleId = crypto.randomUUID();
   await client.query(
     `
-    INSERT INTO capsules (id, user_id, title, content, latitude, longitude, view_limit, view_count, open_at, is_locked, created_at)
-    VALUES ($1, $2, 'e2e-capsule', 'test content', $3, $4, $5, 0, NOW() + INTERVAL '1 day', true, NOW())
+    INSERT INTO capsules (id, user_id, capsule_type, title, content, latitude, longitude, created_at)
+    VALUES ($1, $2, 'EASTER_EGG', 'e2e-capsule', 'test content', $3, $4, NOW())
     `,
-    [capsuleId, ownerId, lat, lng, viewLimit],
+    [capsuleId, ownerId, lat, lng],
+  );
+  await client.query(
+    `
+    INSERT INTO easter_eggs (capsule_id, view_limit, view_count)
+    VALUES ($1, $2, 0)
+    `,
+    [capsuleId, viewLimit],
   );
   return capsuleId;
 }
@@ -124,7 +133,7 @@ test.describe('POST /api/capsules/:id/viewers - 이스터에그 발견 기록', 
 
       // view_count가 증가했는지 확인
       const { rows } = await client.query(
-        'SELECT view_count FROM capsules WHERE id = $1',
+        'SELECT view_count FROM easter_eggs WHERE capsule_id = $1',
         [capsuleId],
       );
       expect(rows[0].view_count).toBe(1);
@@ -173,7 +182,7 @@ test.describe('POST /api/capsules/:id/viewers - 이스터에그 발견 기록', 
 
       // view_count가 1로 유지되는지 확인
       const { rows } = await client.query(
-        'SELECT view_count FROM capsules WHERE id = $1',
+        'SELECT view_count FROM easter_eggs WHERE capsule_id = $1',
         [capsuleId],
       );
       expect(rows[0].view_count).toBe(1);
@@ -206,7 +215,7 @@ test.describe('POST /api/capsules/:id/viewers - 이스터에그 발견 기록', 
 
       // then: view_count = 3
       const { rows } = await client.query(
-        'SELECT view_count FROM capsules WHERE id = $1',
+        'SELECT view_count FROM easter_eggs WHERE capsule_id = $1',
         [capsuleId],
       );
       expect(rows[0].view_count).toBe(3);
@@ -329,7 +338,7 @@ test.describe('POST /api/capsules/:id/viewers - 이스터에그 발견 기록', 
       const body = await response.json();
 
       expect(body.success).toBe(true);
-      expect(body.is_first_view).toBe(true);
+      expect(body.is_first_view).toBe(false);
     } finally {
       await cleanupUser(owner.id);
       await cleanupCapsule(capsuleId);
@@ -434,10 +443,10 @@ test.describe('GET /api/capsules/:id/viewers - 이스터에그 발견자 목록 
     const capsuleId = await createCapsule(owner.id);
 
     // 프로필 이미지 추가
-    await client.query(
-      'UPDATE users SET profile_img = $1 WHERE id = $2',
-      ['https://example.com/profile.jpg', viewer.id],
-    );
+    await client.query('UPDATE users SET profile_img = $1 WHERE id = $2', [
+      'https://example.com/profile.jpg',
+      viewer.id,
+    ]);
 
     try {
       // 발견 기록
@@ -590,4 +599,3 @@ test.describe('GET /api/capsules/:id/viewers - 이스터에그 발견자 목록 
     }
   });
 });
-

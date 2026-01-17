@@ -53,11 +53,25 @@ async function createUser(nickname = 'content-test-user') {
 
 async function cleanupUser(userId: string) {
   await client.query(
-    'DELETE FROM capsule_participant_slots WHERE capsule_id IN (SELECT id FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1))',
+    `
+    DELETE FROM capsule_participant_slots
+    WHERE capsule_id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [userId],
   );
   await client.query(
-    'DELETE FROM capsules WHERE order_id IN (SELECT id FROM orders WHERE user_id = $1)',
+    `
+    DELETE FROM capsules
+    WHERE id IN (
+      SELECT tc.capsule_id
+      FROM time_capsules tc
+      WHERE tc.order_id IN (SELECT id FROM orders WHERE user_id = $1)
+    )
+    `,
     [userId],
   );
   await client.query(
@@ -158,7 +172,7 @@ test.describe('Step Room Content Save API', () => {
 
     // 캡슐 생성 (결제 완료 후 자동 생성되어야 함 - 수동으로 확인)
     const capsuleResult = await client.query(
-      `SELECT id FROM capsules WHERE order_id = $1`,
+      `SELECT capsule_id FROM time_capsules WHERE order_id = $1`,
       [orderId],
     );
 
@@ -170,9 +184,14 @@ test.describe('Step Room Content Save API', () => {
         .substring(2, 8)
         .toUpperCase();
       await client.query(
-        `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, is_locked, view_limit, invite_code, deadline, room_status)
-         VALUES ($1, $2, $3, $4, '테스트 캡슐', NOW() + INTERVAL '7 days', true, 3, $5, NOW() + INTERVAL '24 hours', 'WAITING')`,
-        [capsuleId, userId, TIME_CAPSULE_PRODUCT_ID, orderId, inviteCode],
+        `INSERT INTO capsules (id, user_id, capsule_type, title)
+         VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+        [capsuleId, userId],
+      );
+      await client.query(
+        `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+         VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+        [capsuleId, orderId, inviteCode],
       );
 
       // 슬롯 생성
@@ -184,7 +203,7 @@ test.describe('Step Room Content Save API', () => {
         );
       }
     } else {
-      capsuleId = capsuleResult.rows[0].id;
+      capsuleId = capsuleResult.rows[0].capsule_id;
     }
 
     // 3. 텍스트만 저장
@@ -239,15 +258,14 @@ test.describe('Step Room Content Save API', () => {
     const unpaidCapsuleId = crypto.randomUUID();
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     await client.query(
-      `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, is_locked, view_limit, invite_code, deadline, room_status)
-       VALUES ($1, $2, $3, $4, '미결제 캡슐', NOW() + INTERVAL '7 days', true, 2, $5, NOW() + INTERVAL '24 hours', 'WAITING')`,
-      [
-        unpaidCapsuleId,
-        userId,
-        TIME_CAPSULE_PRODUCT_ID,
-        unpaidOrderId,
-        inviteCode,
-      ],
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '미결제 캡슐')`,
+      [unpaidCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [unpaidCapsuleId, unpaidOrderId, inviteCode],
     );
 
     const saveResponse = await api.post(
@@ -299,9 +317,14 @@ test.describe('Step Room Content Save API', () => {
     const testCapsuleId = crypto.randomUUID();
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     await client.query(
-      `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, is_locked, view_limit, invite_code, deadline, room_status)
-       VALUES ($1, $2, $3, $4, '테스트 캡슐', NOW() + INTERVAL '7 days', true, 2, $5, NOW() + INTERVAL '24 hours', 'WAITING')`,
-      [testCapsuleId, userId, TIME_CAPSULE_PRODUCT_ID, testOrderId, inviteCode],
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
     );
 
     // 슬롯 생성
@@ -373,9 +396,14 @@ test.describe('Step Room Content Save API', () => {
     const testCapsuleId = crypto.randomUUID();
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     await client.query(
-      `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, is_locked, view_limit, invite_code, deadline, room_status)
-       VALUES ($1, $2, $3, $4, '테스트 캡슐', NOW() + INTERVAL '7 days', true, 2, $5, NOW() + INTERVAL '24 hours', 'WAITING')`,
-      [testCapsuleId, userId, TIME_CAPSULE_PRODUCT_ID, testOrderId, inviteCode],
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
     );
 
     // 슬롯 생성
@@ -462,9 +490,14 @@ test.describe('Step Room Content Save API', () => {
     const testCapsuleId = crypto.randomUUID();
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     await client.query(
-      `INSERT INTO capsules (id, user_id, product_id, order_id, title, open_at, is_locked, view_limit, invite_code, deadline, room_status)
-       VALUES ($1, $2, $3, $4, '테스트 캡슐', NOW() + INTERVAL '7 days', true, 2, $5, NOW() + INTERVAL '24 hours', 'WAITING')`,
-      [testCapsuleId, userId, TIME_CAPSULE_PRODUCT_ID, testOrderId, inviteCode],
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
     );
 
     // 슬롯 생성

@@ -24,6 +24,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../entities';
 import { CapsulesService } from './capsules.service';
+import { EasterEggService } from './easter-egg.service';
+import { TimeCapsuleService } from './time-capsule.service';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { GetCapsulesListQueryDto } from './dto/get-capsules-list.dto';
 import { GetCapsuleParamDto, GetCapsuleQueryDto } from './dto/get-capsule.dto';
@@ -55,7 +57,11 @@ function extractMediaItems(
 @ApiBearerAuth('access-token')
 @Controller('capsules')
 export class CapsulesController {
-  constructor(private readonly capsulesService: CapsulesService) {}
+  constructor(
+    private readonly capsulesService: CapsulesService,
+    private readonly easterEggService: EasterEggService,
+    private readonly timeCapsuleService: TimeCapsuleService,
+  ) {}
 
   @Get()
   @UseGuards(JwtAuthGuard)
@@ -171,7 +177,7 @@ export class CapsulesController {
   @ApiOperation({
     summary: '이스터에그(캡슐) 생성',
     description:
-      '제목(100자)/텍스트 블록(각 500자)/미디어 파일(최대 10개), view_limit, open_at, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409. 미디어 파일은 form-data로 직접 업로드합니다.',
+      '제목(100자)/텍스트 블록(각 500자)/미디어 파일(최대 10개), view_limit, product_id를 포함해 캡슐을 생성합니다. 이스터에그 생성 시 위도(latitude)와 경도(longitude)는 필수입니다. 슬롯이 없으면 409. 미디어 파일은 form-data로 직접 업로드합니다.',
   })
   @ApiResponse({ status: 201, description: '생성 성공' })
   @ApiResponse({ status: 400, description: '검증 실패' })
@@ -183,16 +189,16 @@ export class CapsulesController {
     @Body() dto: CreateCapsuleDto,
     @UploadedFiles() files?: MulterFile[],
   ) {
-    const capsule = await this.capsulesService.create(user, dto, files);
+    const capsule = await this.easterEggService.create(user, dto, files);
     const mediaItems = extractMediaItems(
       capsule as { mediaItems?: MediaItemResponse[] },
     );
     return {
       id: capsule.id,
       title: capsule.title,
-      open_at: capsule.openAt,
-      is_locked: capsule.isLocked,
-      view_limit: capsule.viewLimit,
+      open_at: null,
+      is_locked: false,
+      view_limit: capsule.easterEgg?.viewLimit ?? 0,
       media_items: mediaItems,
       text_blocks: capsule.textBlocks,
     };
@@ -336,7 +342,7 @@ export class CapsulesController {
     @CurrentUser() user: User,
     @Query() query: GetMyEggsQueryDto,
   ): Promise<GetMyPlantedEggsResponseDto | GetMyFoundEggsResponseDto> {
-    return this.capsulesService.getMyEggs(user, query.type, query.sort);
+    return this.easterEggService.getMyEggs(user, query.type, query.sort);
   }
 
   @Get(':id/detail')
@@ -395,7 +401,7 @@ export class CapsulesController {
     @CurrentUser() user: User,
     @Param() params: GetCapsuleParamDto,
   ): Promise<GetEggDetailResponseDto> {
-    return this.capsulesService.getEggDetail(user, params.id);
+    return this.easterEggService.getEggDetail(user, params.id);
   }
 
   @Get(':id')
@@ -509,7 +515,7 @@ export class CapsulesController {
     @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) capsuleId: string,
   ) {
-    return this.capsulesService.recordCapsuleViewer(user, capsuleId);
+    return this.easterEggService.recordCapsuleViewer(user, capsuleId);
   }
 
   @Get(':id/viewers')
@@ -557,7 +563,7 @@ export class CapsulesController {
     @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) capsuleId: string,
   ): Promise<GetViewersResponseDto> {
-    return this.capsulesService.getCapsuleViewers(user, capsuleId);
+    return this.easterEggService.getCapsuleViewers(user, capsuleId);
   }
 }
 
@@ -565,7 +571,7 @@ export class CapsulesController {
 @ApiBearerAuth('access-token')
 @Controller('timecapsules')
 export class TimecapsulesController {
-  constructor(private readonly capsulesService: CapsulesService) {}
+  constructor(private readonly timeCapsuleService: TimeCapsuleService) {}
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
@@ -623,7 +629,7 @@ export class TimecapsulesController {
     @CurrentUser() user: User,
     @Param('id', ParseUUIDPipe) capsuleId: string,
   ) {
-    return this.capsulesService.getTimecapsuleForParticipant(
+    return this.timeCapsuleService.getTimecapsuleForParticipant(
       capsuleId,
       user.id,
     );
