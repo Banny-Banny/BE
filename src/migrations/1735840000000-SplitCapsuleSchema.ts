@@ -98,7 +98,7 @@ export class SplitCapsuleSchema1735840000000 implements MigrationInterface {
         "is_locked",
         "invite_code",
         "deadline",
-        "room_status",
+        "room_status"::text::"time_capsules_room_status_enum",
         "buried_at",
         "is_auto_submitted"
       FROM "capsules"
@@ -177,7 +177,7 @@ export class SplitCapsuleSchema1735840000000 implements MigrationInterface {
         "is_locked" = tc.is_locked,
         "invite_code" = tc.invite_code,
         "deadline" = tc.deadline,
-        "room_status" = tc.room_status,
+        "room_status" = tc.room_status::text::"capsules_room_status_enum",
         "buried_at" = tc.buried_at,
         "is_auto_submitted" = tc.is_auto_submitted
       FROM "time_capsules" tc
