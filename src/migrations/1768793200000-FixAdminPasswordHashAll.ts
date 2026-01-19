@@ -4,9 +4,7 @@ import crypto from 'crypto';
 /**
  * admin_users 전체 password_hash 보정 (scrypt 포맷이 아닌 평문만 해시 처리)
  */
-export class FixAdminPasswordHashAll1768793200000
-  implements MigrationInterface
-{
+export class FixAdminPasswordHashAll1768793200000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     const rows = (await queryRunner.query(
       `SELECT id, password_hash FROM admin_users`,
