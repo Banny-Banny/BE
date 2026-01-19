@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class RemoveEasterEggProduct1735841000000
-  implements MigrationInterface
-{
+export class RemoveEasterEggProduct1735841000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       DO $$

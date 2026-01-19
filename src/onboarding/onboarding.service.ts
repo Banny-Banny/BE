@@ -48,11 +48,11 @@ export class OnboardingService {
       if (!user.onboardingCompletedAt) {
         user.onboardingCompletedAt = new Date();
         this.logger.log(
-          `온보딩 첫 완료 - userId: ${userId}, completedAt: ${user.onboardingCompletedAt}`,
+          `온보딩 첫 완료 - userId: ${userId}, completedAt: ${user.onboardingCompletedAt.toISOString()}`,
         );
       } else {
         this.logger.log(
-          `온보딩 정보 업데이트 - userId: ${userId}, 기존 완료 시점: ${user.onboardingCompletedAt}`,
+          `온보딩 정보 업데이트 - userId: ${userId}, 기존 완료 시점: ${user.onboardingCompletedAt.toISOString()}`,
         );
       }
 
@@ -62,12 +62,14 @@ export class OnboardingService {
       this.logger.log(`온보딩 완료 처리 성공 - userId: ${userId}`);
 
       return { success: true };
-    } catch (error) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `온보딩 완료 처리 실패 - userId: ${userId}, error: ${error.message}`,
-        error.stack,
+        `온보딩 완료 처리 실패 - userId: ${userId}, error: ${message}`,
+        stack,
       );
-      throw error;
+      throw error instanceof Error ? error : new Error(message);
     }
   }
 

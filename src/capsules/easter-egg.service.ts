@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -534,7 +533,9 @@ export class EasterEggService {
     };
   }
 
-  private validateTextBlocks(textBlocks?: { order: number; content: string }[]) {
+  private validateTextBlocks(
+    textBlocks?: { order: number; content: string }[],
+  ) {
     if (!textBlocks || textBlocks.length === 0) {
       return null;
     }

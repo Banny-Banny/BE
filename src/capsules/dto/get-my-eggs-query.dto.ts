@@ -31,4 +31,3 @@ export class GetMyEggsQueryDto {
   @IsEnum(MyEggsSortOrder)
   sort?: MyEggsSortOrder;
 }
-

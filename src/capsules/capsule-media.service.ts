@@ -71,7 +71,10 @@ export class CapsuleMediaService {
     });
   }
 
-  buildEntryMediaItems(entry: CapsuleEntry | null, mediaMap: Map<string, Media>) {
+  buildEntryMediaItems(
+    entry: CapsuleEntry | null,
+    mediaMap: Map<string, Media>,
+  ) {
     if (!entry || !entry.mediaItemIds || entry.mediaItemIds.length === 0) {
       return [];
     }

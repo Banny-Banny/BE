@@ -142,7 +142,11 @@ export class AdminDashboardService {
     return { start: this.alignStart(period, this.startOfDay(start)), end };
   }
 
-  private buildBuckets(period: 'day' | 'week' | 'month', start: Date, end: Date) {
+  private buildBuckets(
+    period: 'day' | 'week' | 'month',
+    start: Date,
+    end: Date,
+  ) {
     const buckets: string[] = [];
     const cursor = this.alignStart(period, new Date(start));
 

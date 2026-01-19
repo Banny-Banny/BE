@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddCapsuleTitleToOrders1735808404000
-  implements MigrationInterface
-{
+export class AddCapsuleTitleToOrders1735808404000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.addColumn(
       'orders',
@@ -20,4 +18,3 @@ export class AddCapsuleTitleToOrders1735808404000
     await queryRunner.dropColumn('orders', 'capsule_title');
   }
 }
-

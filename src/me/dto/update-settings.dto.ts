@@ -22,4 +22,3 @@ export class UpdateSettingsDto {
   @IsBoolean({ message: 'isMarketingAgreed는 boolean 타입이어야 합니다.' })
   isMarketingAgreed?: boolean;
 }
-

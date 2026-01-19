@@ -56,10 +56,12 @@ export class PushNotificationService {
 
     // 2. 푸시 알림 전송 (비동기, 실패해도 알림 생성은 완료됨)
     this.sendPushNotification(userId, title, content, type, data).catch(
-      (error) => {
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const stack = error instanceof Error ? error.stack : undefined;
         this.logger.error(
-          `푸시 알림 전송 실패: userId=${userId}, error=${error.message}`,
-          error.stack,
+          `푸시 알림 전송 실패: userId=${userId}, error=${message}`,
+          stack,
         );
       },
     );
@@ -110,7 +112,9 @@ export class PushNotificationService {
     // 4. 푸시 토큰 유효성 검증
     if (!Expo.isExpoPushToken(user.pushToken)) {
       this.logger.warn(
-        `유효하지 않은 푸시 토큰: userId=${userId}, token=${user.pushToken}`,
+        `유효하지 않은 푸시 토큰: userId=${userId}, token=${String(
+          user.pushToken,
+        )}`,
       );
       return;
     }
@@ -137,10 +141,13 @@ export class PushNotificationService {
         try {
           const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
           tickets.push(...ticketChunk);
-        } catch (error) {
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const stack = error instanceof Error ? error.stack : undefined;
           this.logger.error(
-            `푸시 알림 청크 전송 실패: userId=${userId}`,
-            error,
+            `푸시 알림 청크 전송 실패: userId=${userId}, error=${message}`,
+            stack,
           );
         }
       }
@@ -149,18 +156,26 @@ export class PushNotificationService {
       for (const ticket of tickets) {
         if (ticket.status === 'error') {
           this.logger.error(
-            `푸시 알림 전송 오류: userId=${userId}, message=${ticket.message}, details=${JSON.stringify(ticket.details)}`,
+            `푸시 알림 전송 오류: userId=${userId}, message=${String(
+              ticket.message ?? '',
+            )}, details=${JSON.stringify(ticket.details)}`,
           );
         } else {
-          this.logger.log(`푸시 알림 전송 성공: userId=${userId}, id=${ticket.id}`);
+          this.logger.log(
+            `푸시 알림 전송 성공: userId=${userId}, id=${String(
+              ticket.id ?? '',
+            )}`,
+          );
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `푸시 알림 전송 중 예외 발생: userId=${userId}`,
-        error,
+        `푸시 알림 전송 중 예외 발생: userId=${userId}, error=${message}`,
+        stack,
       );
-      throw error;
+      throw error instanceof Error ? error : new Error(message);
     }
   }
 

@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsEnum,
-  IsOptional,
-  IsUUID,
-  Length,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsUUID, Length } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NotificationType } from '../../common/enums';
 
@@ -84,4 +77,3 @@ export class SendNotificationResponseDto {
     this.count = count;
   }
 }
-

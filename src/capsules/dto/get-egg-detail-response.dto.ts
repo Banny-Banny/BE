@@ -190,4 +190,3 @@ export class GetEggDetailResponseDto {
   })
   viewers: EggViewerDto[];
 }
-

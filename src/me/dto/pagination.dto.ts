@@ -59,4 +59,3 @@ export class PaginatedResponseDto<T> {
     this.offset = offset;
   }
 }
-

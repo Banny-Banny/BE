@@ -72,4 +72,3 @@ export class ProfileResponseDto {
     Object.assign(this, partial);
   }
 }
-

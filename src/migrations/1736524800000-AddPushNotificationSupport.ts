@@ -5,9 +5,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - users 테이블에 push_token 컬럼 추가
  * - notification_type_enum에 FRIEND_ACCEPTED, EASTER_EGG_VIEWED 추가
  */
-export class AddPushNotificationSupport1736524800000
-  implements MigrationInterface
-{
+export class AddPushNotificationSupport1736524800000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. users 테이블에 push_token 컬럼 추가
     await queryRunner.query(`

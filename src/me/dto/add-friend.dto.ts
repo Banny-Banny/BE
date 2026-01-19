@@ -37,4 +37,3 @@ export class AddFriendResponseDto {
     this.friendshipId = friendshipId;
   }
 }
-

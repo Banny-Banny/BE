@@ -81,4 +81,3 @@ export class PaginatedFriendResponseDto extends PaginatedResponseDto<FriendshipI
     super(items, total, limit, offset);
   }
 }
-

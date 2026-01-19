@@ -13,4 +13,3 @@ export class CreateStepRoomDto {
   @IsUUID('4', { message: '올바른 UUID 형식이어야 합니다' })
   order_id: string;
 }
-

@@ -18,4 +18,3 @@ export class KakaoFriendsSyncRequestDto {
   @IsString()
   redirectUri: string;
 }
-

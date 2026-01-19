@@ -4,9 +4,7 @@ import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
  * 알림(Notifications) 테이블 생성 마이그레이션
  * 사용자에게 발송되는 알림 정보를 저장
  */
-export class CreateNotificationsTable1736179200000
-  implements MigrationInterface
-{
+export class CreateNotificationsTable1736179200000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. NotificationType Enum 생성
     await queryRunner.query(`
@@ -126,4 +124,3 @@ export class CreateNotificationsTable1736179200000
     await queryRunner.query(`DROP TYPE IF EXISTS notification_type_enum`);
   }
 }
-
