@@ -182,6 +182,17 @@ export class AdminAuthService {
     return admin;
   }
 
+  async validateAccessToken(token: string): Promise<AdminUser | null> {
+    try {
+      const payload = this.jwtService.verify<AdminJwtPayload>(token, {
+        secret: this.accessSecret,
+      });
+      return this.validateToken(payload);
+    } catch {
+      return null;
+    }
+  }
+
   private async issueTokens(admin: AdminUser): Promise<AdminTokenResponse> {
     const payload: AdminJwtPayload = {
       sub: admin.id,

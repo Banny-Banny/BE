@@ -92,3 +92,21 @@ export enum AdminRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
   ADMIN = 'ADMIN',
 }
+
+/**
+ * 1:1 문의 상태
+ */
+export enum InquiryStatus {
+  PENDING = 'PENDING', // 답변 대기
+  IN_PROGRESS = 'IN_PROGRESS', // 진행 중
+  ON_HOLD = 'ON_HOLD', // 보류
+  COMPLETED = 'COMPLETED', // 답변 완료
+}
+
+/**
+ * 1:1 문의 메시지 발신자 타입
+ */
+export enum InquirySenderType {
+  USER = 'USER',
+  ADMIN = 'ADMIN',
+}

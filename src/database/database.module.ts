@@ -14,6 +14,7 @@ import {
   PaymentCancel,
   Friendship,
   CustomerService,
+  CustomerServiceMessage,
   Media,
   CapsuleParticipantSlot,
   CapsuleEntry,
@@ -52,6 +53,7 @@ import {
           PaymentCancel,
           Friendship,
           CustomerService,
+          CustomerServiceMessage,
           Media,
           Notification,
         ];

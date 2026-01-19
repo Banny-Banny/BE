@@ -7,6 +7,7 @@ import {
   AdminUser,
   User,
   CustomerService,
+  CustomerServiceMessage,
   CapsuleAccessLog,
   Payment,
 } from '../entities';
@@ -17,10 +18,16 @@ import { AdminDashboardController } from './dashboard/admin-dashboard.controller
 import { AdminDashboardService } from './dashboard/admin-dashboard.service';
 import { AdminUsersController } from './users/admin-users.controller';
 import { AdminUsersService } from './users/admin-users.service';
+import { AdminInquiriesController } from './inquiries/admin-inquiries.controller';
+import { AdminInquiriesService } from './inquiries/admin-inquiries.service';
+import { AdminChatGateway } from './inquiries/admin-chat.gateway';
+import { UserChatGateway } from './inquiries/user-chat.gateway';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
     ConfigModule,
+    AuthModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -36,6 +43,7 @@ import { AdminUsersService } from './users/admin-users.service';
       AdminUser,
       User,
       CustomerService,
+      CustomerServiceMessage,
       CapsuleAccessLog,
       Payment,
     ]),
@@ -44,12 +52,16 @@ import { AdminUsersService } from './users/admin-users.service';
     AdminAuthController,
     AdminDashboardController,
     AdminUsersController,
+    AdminInquiriesController,
   ],
   providers: [
     AdminAuthService,
     AdminJwtStrategy,
     AdminDashboardService,
     AdminUsersService,
+    AdminInquiriesService,
+    AdminChatGateway,
+    UserChatGateway,
   ],
 })
 export class AdminModule {}

@@ -300,6 +300,15 @@ export class AuthService {
     return user;
   }
 
+  async validateAccessToken(token: string): Promise<User | null> {
+    try {
+      const payload = this.jwtService.verify<JwtPayload>(token);
+      return this.validateToken(payload);
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * 사용자 프로필 정보 조회 (통계 포함)
    */

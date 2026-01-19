@@ -6,8 +6,12 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  DeleteDateColumn,
+  OneToMany,
 } from 'typeorm';
 import { User } from './user.entity';
+import { InquiryStatus } from '../common/enums';
+import { CustomerServiceMessage } from './customer-service-message.entity';
 
 /**
  * 1:1 문의 게시판
@@ -42,6 +46,32 @@ export class CustomerService {
   })
   isResolved: boolean;
 
+  @Column({
+    type: 'enum',
+    enum: InquiryStatus,
+    enumName: 'inquiry_status',
+    default: InquiryStatus.PENDING,
+    comment: '문의 상태',
+  })
+  status: InquiryStatus;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'last_message_at',
+    comment: '마지막 메시지 시간',
+  })
+  lastMessageAt: Date | null;
+
+  @Column({
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+    name: 'last_message_preview',
+    comment: '리스트용 마지막 메시지 미리보기',
+  })
+  lastMessagePreview: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
@@ -52,10 +82,16 @@ export class CustomerService {
   })
   updatedAt: Date;
 
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date | null;
+
   // Relations
   @ManyToOne(() => User, (user) => user.customerServices, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  @OneToMany(() => CustomerServiceMessage, (message) => message.customerService)
+  messages: CustomerServiceMessage[];
 }

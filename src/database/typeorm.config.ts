@@ -13,6 +13,7 @@ import {
   PaymentCancel,
   Friendship,
   CustomerService,
+  CustomerServiceMessage,
   Media,
   CapsuleParticipantSlot,
   CapsuleEntry,
@@ -39,7 +40,8 @@ if (usePgEnv) {
 }
 
 // 프로덕션에서는 빌드된 JS를 사용, 개발에서는 TS를 사용
-const isProduction = process.env.NODE_ENV === 'production' || !__filename.endsWith('.ts');
+const isProduction =
+  process.env.NODE_ENV === 'production' || !__filename.endsWith('.ts');
 const migrationsGlob = isProduction
   ? 'dist/src/migrations/*.js'
   : 'src/migrations/*.ts';
@@ -79,6 +81,7 @@ const dataSource = new DataSource({
     PaymentCancel,
     Friendship,
     CustomerService,
+    CustomerServiceMessage,
     Media,
     Notification,
   ],
