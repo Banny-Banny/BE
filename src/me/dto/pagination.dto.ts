@@ -1,6 +1,6 @@
 import { IsInt, Min, Max, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * 페이지네이션 쿼리 DTO
@@ -47,15 +47,40 @@ export interface PaginationMeta {
  * 페이지네이션 응답 DTO (제네릭)
  */
 export class PaginatedResponseDto<T> {
+  @ApiProperty({
+    description: '아이템 목록',
+  })
   items: T[];
+
+  @ApiProperty({
+    description: '전체 아이템 수',
+    example: 157,
+  })
   total: number;
+
+  @ApiProperty({
+    description: '현재 limit 값',
+    example: 20,
+  })
   limit: number;
+
+  @ApiProperty({
+    description: '현재 offset 값',
+    example: 0,
+  })
   offset: number;
+
+  @ApiPropertyOptional({
+    description: '다음 페이지 존재 여부',
+    example: true,
+  })
+  hasNext?: boolean;
 
   constructor(items: T[], total: number, limit: number, offset: number) {
     this.items = items;
     this.total = total;
     this.limit = limit;
     this.offset = offset;
+    this.hasNext = offset + items.length < total;
   }
 }

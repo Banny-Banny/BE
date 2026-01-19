@@ -571,6 +571,7 @@ test('GET /api/me/capsules 200: 참여중인 캡슐 목록 조회', async () => 
   expect(body.total).toBeGreaterThanOrEqual(2);
   expect(body.limit).toBe(10);
   expect(body.offset).toBe(0);
+  expect(body.hasNext).toBe(body.offset + body.items.length < body.total);
 
   // 캡슐 정보 확인
   const foundCapsule = body.items.find((c: any) => c.id === capsule1);
@@ -593,6 +594,7 @@ test('GET /api/me/capsules 200: 빈 목록', async () => {
   const body = await res.json();
   expect(body.items).toEqual([]);
   expect(body.total).toBe(0);
+  expect(body.hasNext).toBe(false);
 
   await cleanupUser(user.id);
 });
@@ -614,6 +616,7 @@ test('GET /api/me/capsules 200: 페이지네이션', async () => {
   const body1 = await res1.json();
   expect(body1.items.length).toBe(2);
   expect(body1.total).toBeGreaterThanOrEqual(5);
+  expect(body1.hasNext).toBe(body1.offset + body1.items.length < body1.total);
 
   // 두 번째 페이지
   const res2 = await api.get('/api/me/capsules?limit=2&offset=2', {
@@ -622,6 +625,7 @@ test('GET /api/me/capsules 200: 페이지네이션', async () => {
   expect(res2.status()).toBe(200);
   const body2 = await res2.json();
   expect(body2.items.length).toBe(2);
+  expect(body2.hasNext).toBe(body2.offset + body2.items.length < body2.total);
 
   await cleanupUser(user.id);
 });
