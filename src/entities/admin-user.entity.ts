@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm';
+import crypto from 'crypto';
 import { AdminRole } from '../common/enums';
 
 /**
@@ -58,4 +61,26 @@ export class AdminUser {
 
   @UpdateDateColumn({ name: 'updated_at', nullable: true })
   updatedAt: Date | null;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  private ensurePasswordHash() {
+    if (!this.passwordHash) {
+      return;
+    }
+    if (AdminUser.looksLikeScryptHash(this.passwordHash)) {
+      return;
+    }
+    this.passwordHash = AdminUser.hashPassword(this.passwordHash);
+  }
+
+  private static looksLikeScryptHash(value: string) {
+    return /^[0-9a-f]{32}:[0-9a-f]{128}$/i.test(value);
+  }
+
+  private static hashPassword(password: string) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derived = crypto.scryptSync(password, salt, 64) as Buffer;
+    return `${salt}:${derived.toString('hex')}`;
+  }
 }
