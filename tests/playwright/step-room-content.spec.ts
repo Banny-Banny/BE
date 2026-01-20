@@ -362,6 +362,234 @@ test.describe('Step Room Content Save API', () => {
     }
   });
 
+  test('should reject invalid image mime type', async () => {
+    // 1. 주문 생성 (이미지 허용)
+    const orderResponse = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        headcount: 2,
+        time_option: '1_WEEK',
+        photo_count: 3,
+        add_music: false,
+        add_video: false,
+      },
+    });
+
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderData = await orderResponse.json();
+    const testOrderId = orderData.order_id;
+
+    // 2. 결제 완료 처리
+    const paymentId = crypto.randomUUID();
+    const paymentKey = `test-payment-${Date.now()}`;
+    await client.query(
+      `INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid, approved_at)
+       VALUES ($1, $2, $3, 0, 'PAID', 'KRW', $3, NOW())`,
+      [paymentId, testOrderId, paymentKey],
+    );
+    await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+      testOrderId,
+    ]);
+
+    // 3. 캡슐 생성
+    const testCapsuleId = crypto.randomUUID();
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await client.query(
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
+    );
+
+    // 슬롯 생성
+    for (let i = 0; i < 2; i++) {
+      await client.query(
+        `INSERT INTO capsule_participant_slots (capsule_id, slot_index, user_id, status)
+         VALUES ($1, $2, $3, $4)`,
+        [testCapsuleId, i, i === 0 ? userId : null, 'PENDING'],
+      );
+    }
+
+    // 4. 허용되지 않는 이미지 타입 업로드 시도 (image/gif)
+    const saveResponse = await api.post(
+      `/api/capsules/step-rooms/${testCapsuleId}/my-content`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        multipart: {
+          text_message: '이미지 타입 테스트',
+          images: {
+            name: 'invalid-image.gif',
+            mimeType: 'image/gif',
+            buffer: Buffer.from('fake-image-data'),
+          },
+        },
+      },
+    );
+
+    expect(saveResponse.status()).toBe(400);
+    const result = await saveResponse.json();
+    expect(result.message).toBe('INVALID_IMAGE_TYPE');
+  });
+
+  test('should reject invalid audio mime type', async () => {
+    // 1. 주문 생성 (음성 허용)
+    const orderResponse = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        headcount: 2,
+        time_option: '1_WEEK',
+        photo_count: 0,
+        add_music: true,
+        add_video: false,
+      },
+    });
+
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderData = await orderResponse.json();
+    const testOrderId = orderData.order_id;
+
+    // 2. 결제 완료 처리
+    const paymentId = crypto.randomUUID();
+    const paymentKey = `test-payment-${Date.now()}`;
+    await client.query(
+      `INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid, approved_at)
+       VALUES ($1, $2, $3, 0, 'PAID', 'KRW', $3, NOW())`,
+      [paymentId, testOrderId, paymentKey],
+    );
+    await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+      testOrderId,
+    ]);
+
+    // 3. 캡슐 생성
+    const testCapsuleId = crypto.randomUUID();
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await client.query(
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
+    );
+
+    // 슬롯 생성
+    for (let i = 0; i < 2; i++) {
+      await client.query(
+        `INSERT INTO capsule_participant_slots (capsule_id, slot_index, user_id, status)
+         VALUES ($1, $2, $3, $4)`,
+        [testCapsuleId, i, i === 0 ? userId : null, 'PENDING'],
+      );
+    }
+
+    // 4. 허용되지 않는 오디오 타입 업로드 시도 (audio/ogg)
+    const saveResponse = await api.post(
+      `/api/capsules/step-rooms/${testCapsuleId}/my-content`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        multipart: {
+          text_message: '오디오 타입 테스트',
+          music: {
+            name: 'invalid-audio.ogg',
+            mimeType: 'audio/ogg',
+            buffer: Buffer.from('fake-audio-data'),
+          },
+        },
+      },
+    );
+
+    expect(saveResponse.status()).toBe(400);
+    const result = await saveResponse.json();
+    expect(result.message).toBe('INVALID_AUDIO_TYPE');
+  });
+
+  test('should reject invalid video mime type', async () => {
+    // 1. 주문 생성 (비디오 허용)
+    const orderResponse = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        headcount: 2,
+        time_option: '1_WEEK',
+        photo_count: 0,
+        add_music: false,
+        add_video: true,
+      },
+    });
+
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderData = await orderResponse.json();
+    const testOrderId = orderData.order_id;
+
+    // 2. 결제 완료 처리
+    const paymentId = crypto.randomUUID();
+    const paymentKey = `test-payment-${Date.now()}`;
+    await client.query(
+      `INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid, approved_at)
+       VALUES ($1, $2, $3, 0, 'PAID', 'KRW', $3, NOW())`,
+      [paymentId, testOrderId, paymentKey],
+    );
+    await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+      testOrderId,
+    ]);
+
+    // 3. 캡슐 생성
+    const testCapsuleId = crypto.randomUUID();
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await client.query(
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
+    );
+
+    // 슬롯 생성
+    for (let i = 0; i < 2; i++) {
+      await client.query(
+        `INSERT INTO capsule_participant_slots (capsule_id, slot_index, user_id, status)
+         VALUES ($1, $2, $3, $4)`,
+        [testCapsuleId, i, i === 0 ? userId : null, 'PENDING'],
+      );
+    }
+
+    // 4. 허용되지 않는 비디오 타입 업로드 시도 (video/avi)
+    const saveResponse = await api.post(
+      `/api/capsules/step-rooms/${testCapsuleId}/my-content`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        multipart: {
+          text_message: '비디오 타입 테스트',
+          video: {
+            name: 'invalid-video.avi',
+            mimeType: 'video/avi',
+            buffer: Buffer.from('fake-video-data'),
+          },
+        },
+      },
+    );
+
+    expect(saveResponse.status()).toBe(400);
+    const result = await saveResponse.json();
+    expect(result.message).toBe('INVALID_VIDEO_TYPE');
+  });
+
   test('should update content successfully (re-save)', async () => {
     // 1. 주문 및 캡슐 생성
     const orderResponse = await api.post('/api/orders', {
@@ -454,6 +682,178 @@ test.describe('Step Room Content Save API', () => {
     const result = await saveResponse.json();
     expect(result.success).toBe(true);
     expect(result.data.status).toBe('COMPLETED');
+  });
+
+  test('should patch content and keep existing images', async () => {
+    // 1. 주문 및 캡슐 생성
+    const orderResponse = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        headcount: 2,
+        time_option: '1_WEEK',
+        photo_count: 5,
+        add_music: false,
+        add_video: false,
+      },
+    });
+
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderData = await orderResponse.json();
+    const testOrderId = orderData.order_id;
+
+    // 2. 결제 완료 처리
+    const paymentId = crypto.randomUUID();
+    const paymentKey = `test-payment-${Date.now()}`;
+    await client.query(
+      `INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid, approved_at)
+       VALUES ($1, $2, $3, 0, 'PAID', 'KRW', $3, NOW())`,
+      [paymentId, testOrderId, paymentKey],
+    );
+    await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+      testOrderId,
+    ]);
+
+    // 3. 캡슐 생성
+    const testCapsuleId = crypto.randomUUID();
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await client.query(
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
+    );
+
+    // 슬롯 생성
+    for (let i = 0; i < 2; i++) {
+      await client.query(
+        `INSERT INTO capsule_participant_slots (capsule_id, slot_index, user_id, status)
+         VALUES ($1, $2, $3, $4)`,
+        [testCapsuleId, i, i === 0 ? userId : null, 'PENDING'],
+      );
+    }
+
+    const existingImages = [crypto.randomUUID(), crypto.randomUUID()];
+    await client.query(
+      `
+      UPDATE capsule_participant_slots
+      SET text_message = $1, status = 'COMPLETED', image_ids = $2
+      WHERE capsule_id = $3 AND user_id = $4
+      `,
+      ['기존 메시지', existingImages, testCapsuleId, userId],
+    );
+
+    // 4. PATCH로 텍스트만 수정
+    const patchResponse = await api.patch(
+      `/api/capsules/step-rooms/${testCapsuleId}/my-content`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        multipart: {
+          text_message: '부분 수정된 메시지입니다.',
+        },
+      },
+    );
+
+    if (!patchResponse.ok()) {
+      console.error(
+        'Content patch failed:',
+        patchResponse.status(),
+        await patchResponse.text(),
+      );
+    }
+    expect(patchResponse.ok()).toBeTruthy();
+    const result = await patchResponse.json();
+    expect(result.success).toBe(true);
+    expect(result.data.uploaded_images).toBe(existingImages.length);
+    expect(result.data.uploaded_music).toBe(false);
+    expect(result.data.uploaded_video).toBe(false);
+
+    const slotCheck = await client.query(
+      `
+      SELECT image_ids
+      FROM capsule_participant_slots
+      WHERE capsule_id = $1 AND user_id = $2
+      `,
+      [testCapsuleId, userId],
+    );
+    expect(slotCheck.rows[0].image_ids).toEqual(existingImages);
+  });
+
+  test('should return 404 when patching without existing content', async () => {
+    // 1. 주문 및 캡슐 생성
+    const orderResponse = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        headcount: 2,
+        time_option: '1_WEEK',
+        photo_count: 3,
+        add_music: false,
+        add_video: false,
+      },
+    });
+
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderData = await orderResponse.json();
+    const testOrderId = orderData.order_id;
+
+    // 2. 결제 완료 처리
+    const paymentId = crypto.randomUUID();
+    const paymentKey = `test-payment-${Date.now()}`;
+    await client.query(
+      `INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid, approved_at)
+       VALUES ($1, $2, $3, 0, 'PAID', 'KRW', $3, NOW())`,
+      [paymentId, testOrderId, paymentKey],
+    );
+    await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+      testOrderId,
+    ]);
+
+    // 3. 캡슐 생성
+    const testCapsuleId = crypto.randomUUID();
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await client.query(
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
+    );
+
+    // 슬롯 생성 (PENDING + text_message 없음)
+    for (let i = 0; i < 2; i++) {
+      await client.query(
+        `INSERT INTO capsule_participant_slots (capsule_id, slot_index, user_id, status)
+         VALUES ($1, $2, $3, $4)`,
+        [testCapsuleId, i, i === 0 ? userId : null, 'PENDING'],
+      );
+    }
+
+    const patchResponse = await api.patch(
+      `/api/capsules/step-rooms/${testCapsuleId}/my-content`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        multipart: {
+          text_message: '수정 시도',
+        },
+      },
+    );
+
+    expect(patchResponse.status()).toBe(404);
+    const result = await patchResponse.json();
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('CONTENT_NOT_FOUND');
   });
 
   test('should reject unauthorized access', async () => {

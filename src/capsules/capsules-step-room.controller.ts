@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UploadedFiles,
@@ -32,6 +33,8 @@ import {
 import { StepRoomSettingsResponseDto } from './dto/step-room-settings.dto';
 import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
+import { PatchContentDto } from './dto/patch-content.dto';
+import { PatchContentResponseDto } from './dto/patch-content-response.dto';
 import { SubmitCapsuleDto } from './dto/submit-capsule.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { CreateStepRoomDto } from './dto/create-step-room.dto';
@@ -373,6 +376,92 @@ export class CapsulesStepRoomController {
       capsuleId,
       user.id,
       saveContentDto,
+      files,
+    );
+  }
+
+  @Patch(':capsuleId/my-content')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'images', maxCount: 5 },
+        { name: 'music', maxCount: 1 },
+        { name: 'video', maxCount: 1 },
+      ],
+      {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+        storage: memoryStorage(),
+        limits: {
+          fileSize: 200 * 1024 * 1024,
+        },
+      },
+    ),
+  )
+  @ApiOperation({
+    summary: '스텝룸 콘텐츠 부분 수정',
+    description:
+      '스텝룸에 저장된 콘텐츠를 부분 수정합니다. 전달된 필드만 수정하며, 전달되지 않은 필드는 기존 값을 유지합니다.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({
+    status: 200,
+    description: '콘텐츠 수정 성공',
+    type: PatchContentResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청 (미디어 설정 위반 등)',
+    schema: {
+      example: {
+        success: false,
+        error: 'IMAGE_LIMIT_EXCEEDED',
+        message: '사진은 최대 3장까지 업로드할 수 있습니다',
+        data: {
+          max_images: 3,
+          uploaded_images: 5,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '권한 없음',
+    schema: {
+      example: {
+        success: false,
+        error: 'UNAUTHORIZED_ACCESS',
+        message: '이 캡슐에 접근할 권한이 없습니다',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '수정할 콘텐츠 없음',
+    schema: {
+      example: {
+        success: false,
+        error: 'CONTENT_NOT_FOUND',
+        message: '수정할 콘텐츠가 없습니다. POST로 먼저 저장해주세요',
+      },
+    },
+  })
+  async patchMyContent(
+    @Param('capsuleId', ParseUUIDPipe) capsuleId: string,
+    @CurrentUser() user: User,
+    @Body() patchContentDto: PatchContentDto,
+    @UploadedFiles()
+    files: {
+      images?: MulterFile[];
+      music?: MulterFile[];
+      video?: MulterFile[];
+    },
+  ): Promise<PatchContentResponseDto> {
+    return this.stepRoomService.patchMyContent(
+      capsuleId,
+      user.id,
+      patchContentDto,
       files,
     );
   }

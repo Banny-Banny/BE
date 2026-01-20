@@ -26,6 +26,8 @@ import {
 import { StepRoomSettingsResponseDto } from './dto/step-room-settings.dto';
 import { SaveContentDto } from './dto/save-content.dto';
 import { ContentResponseDto } from './dto/content-response.dto';
+import { PatchContentDto } from './dto/patch-content.dto';
+import { PatchContentResponseDto } from './dto/patch-content-response.dto';
 import { SubmitCapsuleResponseDto } from './dto/submit-capsule-response.dto';
 import { JoinStepRoomResponseDto } from './dto/join-step-room.dto';
 import { MediaService } from '../media/media.service';
@@ -336,6 +338,99 @@ export class CapsulesStepRoomService {
           status: slot.status,
           saved_at: slot.updatedAt,
           uploaded_images: uploadedImageIds.length,
+          uploaded_music: !!slot.musicId,
+          uploaded_video: !!slot.videoId,
+        },
+      };
+    });
+  }
+
+  /**
+   * 스텝룸 콘텐츠 부분 수정 (트랜잭션)
+   */
+  private async patchStepRoomContentTransaction(
+    capsule: Capsule,
+    userId: string,
+    user: User,
+    patchContentDto: PatchContentDto,
+    files: {
+      images?: MulterFile[];
+      music?: MulterFile[];
+      video?: MulterFile[];
+    },
+  ): Promise<PatchContentResponseDto> {
+    return await this.dataSource.transaction(async (manager) => {
+      const slotRepo = manager.getRepository(CapsuleParticipantSlot);
+
+      const slot = await slotRepo.findOne({
+        where: { capsuleId: capsule.id, userId },
+      });
+
+      if (!slot) {
+        throw new NotFoundException({
+          success: false,
+          error: 'CONTENT_NOT_FOUND',
+          message: '수정할 콘텐츠가 없습니다. POST로 먼저 저장해주세요',
+        });
+      }
+
+      if (slot.status === 'PENDING' && !slot.textMessage) {
+        throw new NotFoundException({
+          success: false,
+          error: 'CONTENT_NOT_FOUND',
+          message: '수정할 콘텐츠가 없습니다. POST로 먼저 저장해주세요',
+        });
+      }
+
+      slot.nickname = user.nickname || '익명';
+
+      if (typeof patchContentDto.text_message !== 'undefined') {
+        slot.textMessage = patchContentDto.text_message;
+      }
+
+      if (files.images && files.images.length > 0) {
+        const uploadedImageIds: string[] = [];
+        for (const imageFile of files.images) {
+          const media = await this.mediaService.uploadMulterFile(
+            userId,
+            imageFile,
+            MediaType.IMAGE,
+          );
+          uploadedImageIds.push(media.id);
+        }
+        slot.imageIds = uploadedImageIds;
+      }
+
+      if (files.music && files.music.length > 0) {
+        const media = await this.mediaService.uploadMulterFile(
+          userId,
+          files.music[0],
+          MediaType.AUDIO,
+        );
+        slot.musicId = media.id;
+      }
+
+      if (files.video && files.video.length > 0) {
+        const media = await this.mediaService.uploadMulterFile(
+          userId,
+          files.video[0],
+          MediaType.VIDEO,
+        );
+        slot.videoId = media.id;
+      }
+
+      slot.status = 'COMPLETED';
+
+      await slotRepo.save(slot);
+
+      return {
+        success: true,
+        data: {
+          user_id: userId,
+          nickname: slot.nickname,
+          status: slot.status,
+          updated_at: slot.updatedAt,
+          uploaded_images: slot.imageIds ? slot.imageIds.length : 0,
           uploaded_music: !!slot.musicId,
           uploaded_video: !!slot.videoId,
         },
@@ -948,6 +1043,44 @@ export class CapsulesStepRoomService {
       userId,
       user,
       saveContentDto,
+      files,
+    );
+  }
+
+  /**
+   * 스텝룸 콘텐츠 부분 수정
+   */
+  async patchMyContent(
+    capsuleId: string,
+    userId: string,
+    patchContentDto: PatchContentDto,
+    files: {
+      images?: MulterFile[];
+      music?: MulterFile[];
+      video?: MulterFile[];
+    },
+  ): Promise<PatchContentResponseDto> {
+    const { capsule, order } =
+      await this.timeCapsuleService.ensurePaidCapsuleContext(capsuleId);
+
+    await this.validateStepRoomAccess(capsule, userId);
+
+    this.validateStepRoomMediaSettings(order, files);
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: '사용자를 찾을 수 없습니다',
+      });
+    }
+
+    return await this.patchStepRoomContentTransaction(
+      capsule,
+      userId,
+      user,
+      patchContentDto,
       files,
     );
   }
