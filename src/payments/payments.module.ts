@@ -17,5 +17,6 @@ import { CapsulesModule } from '../capsules/capsules.module';
   ],
   controllers: [PaymentsController, TossPaymentsController],
   providers: [PaymentsService],
+  exports: [PaymentsService],
 })
 export class PaymentsModule {}

@@ -809,6 +809,113 @@ export class PaymentsService {
     });
   }
 
+  async adminCancelPayment(
+    paymentId: string,
+    dto: {
+      cancelReason: string;
+      cancelAmount?: number;
+      refundReceiveAccount?: {
+        bank: string;
+        accountNumber: string;
+        holderName: string;
+      };
+    },
+  ) {
+    const payment = await this.paymentRepository.findOne({
+      where: { id: paymentId },
+      relations: { order: true, cancels: true },
+    });
+    if (!payment) {
+      throw new NotFoundException('PAYMENT_NOT_FOUND');
+    }
+    if (!payment.paymentKey) {
+      throw new BadRequestException('PAYMENT_KEY_REQUIRED');
+    }
+
+    const tossRes = await this.callTossCancel({
+      paymentKey: payment.paymentKey,
+      cancelReason: dto.cancelReason,
+      cancelAmount: dto.cancelAmount,
+      refundReceiveAccount: dto.refundReceiveAccount,
+    });
+
+    return this.dataSource.transaction(async (manager) => {
+      const paymentRepo = manager.getRepository(Payment);
+      const cancelRepo = manager.getRepository(PaymentCancel);
+      const orderRepo = manager.getRepository(Order);
+
+      let targetPayment = await paymentRepo.findOne({
+        where: { id: payment.id },
+      });
+      if (!targetPayment) {
+        throw new InternalServerErrorException('PAYMENT_NOT_LOADED');
+      }
+
+      targetPayment = this.mapTossPaymentToEntity(
+        targetPayment,
+        tossRes,
+        payment.orderNo ?? String(tossRes.orderId ?? ''),
+      );
+
+      const isFullyCanceled =
+        tossRes.status === 'CANCELED' ||
+        tossRes.balanceAmount === 0 ||
+        targetPayment.balanceAmount === 0;
+      if (isFullyCanceled) {
+        targetPayment.status = PaymentStatus.CANCELED;
+      }
+
+      await paymentRepo.save(targetPayment);
+
+      const cancels = Array.isArray(tossRes.cancels) ? tossRes.cancels : [];
+      for (const c of cancels) {
+        const exists = await cancelRepo.findOne({
+          where: { transactionKey: c.transactionKey },
+        });
+        if (exists) continue;
+        const cancelAmount =
+          c.cancelAmount ??
+          dto.cancelAmount ??
+          targetPayment.balanceAmount ??
+          targetPayment.amount ??
+          0;
+        const entity = cancelRepo.create({
+          paymentId: targetPayment.id,
+          transactionKey: c.transactionKey,
+          cancelAmount,
+          cancelReason: c.cancelReason ?? dto.cancelReason ?? null,
+          cancelStatus: c.cancelStatus ?? null,
+          canceledAt: c.canceledAt ? new Date(String(c.canceledAt)) : null,
+          taxFreeAmount: c.taxFreeAmount ?? null,
+          taxExemptionAmount: c.taxExemptionAmount ?? null,
+          refundableAmount: c.refundableAmount ?? null,
+          easyPayDiscountAmount: c.easyPayDiscountAmount ?? null,
+          transferDiscountAmount: c.transferDiscountAmount ?? null,
+          receiptKey: c.receiptKey ?? null,
+          rawResponse: c,
+        });
+        await cancelRepo.save(entity);
+      }
+
+      if (payment.order && isFullyCanceled) {
+        await orderRepo.save({
+          ...payment.order,
+          status: OrderStatus.CANCELED,
+          updatedAt: new Date(),
+        });
+      }
+
+      return {
+        payment_key: targetPayment.paymentKey,
+        status: targetPayment.tossStatus ?? targetPayment.status,
+        balance_amount: targetPayment.balanceAmount,
+        cancels,
+        receipt_url: targetPayment.receiptUrl,
+        order_id: payment.order?.id ?? null,
+      };
+    });
+  }
+
   /**
    * 본인의 결제 내역 조회
    */
@@ -860,6 +967,56 @@ export class PaymentsService {
       total,
       page,
       limit,
+    };
+  }
+
+  async issueReceiptForOrder(orderId: string) {
+    const payment = await this.paymentRepository.findOne({
+      where: { orderId },
+      relations: { order: true },
+    });
+    if (!payment) {
+      throw new NotFoundException('PAYMENT_NOT_FOUND');
+    }
+    if (!payment.paymentKey && payment.receiptUrl) {
+      return {
+        success: true,
+        data: {
+          order_id: orderId,
+          payment_id: payment.id,
+          receipt_url: payment.receiptUrl,
+        },
+      };
+    }
+    if (!payment.paymentKey) {
+      throw new BadRequestException('PAYMENT_KEY_REQUIRED');
+    }
+
+    let receiptUrl = payment.receiptUrl;
+    if (!receiptUrl) {
+      if (this.useTossMock) {
+        receiptUrl = 'https://mock.toss/receipt';
+      } else {
+        const tossRes = await this.callTossGetByPaymentKey(payment.paymentKey);
+        if (tossRes) {
+          const updated = this.mapTossPaymentToEntity(
+            payment,
+            tossRes,
+            payment.orderNo ?? orderId,
+          );
+          await this.paymentRepository.save(updated);
+          receiptUrl = updated.receiptUrl;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        order_id: orderId,
+        payment_id: payment.id,
+        receipt_url: receiptUrl ?? null,
+      },
     };
   }
 }

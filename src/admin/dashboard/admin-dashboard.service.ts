@@ -1,14 +1,26 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import {
   CapsuleAccessLog,
   CustomerService,
+  Order,
   Payment,
   User,
 } from '../../entities';
-import { PaymentStatus } from '../../common/enums';
+import { OrderStatus, PaymentStatus } from '../../common/enums';
 import { AdminDashboardChartQueryDto } from './dto/admin-dashboard-chart-query.dto';
+import { AdminOrderListQueryDto } from './dto/admin-order-list-query.dto';
+import { AdminOrderStatusUpdateDto } from './dto/admin-order-status-update.dto';
+import { AdminPaymentLogsQueryDto } from './dto/admin-payment-logs-query.dto';
+import { AdminReceiptIssueDto } from './dto/admin-receipt-issue.dto';
+import { AdminPaymentCancelDto } from './dto/admin-payment-cancel.dto';
+import { PaymentsService } from '../../payments/payments.service';
+import { CapsulesStepRoomService } from '../../capsules/capsules-step-room.service';
 
 @Injectable()
 export class AdminDashboardService {
@@ -19,8 +31,12 @@ export class AdminDashboardService {
     private readonly customerServiceRepository: Repository<CustomerService>,
     @InjectRepository(CapsuleAccessLog)
     private readonly accessLogRepository: Repository<CapsuleAccessLog>,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
     @InjectRepository(Payment)
     private readonly paymentRepository: Repository<Payment>,
+    private readonly paymentsService: PaymentsService,
+    private readonly stepRoomService: CapsulesStepRoomService,
   ) {}
 
   async getSummary() {
@@ -115,6 +131,329 @@ export class AdminDashboardService {
         items,
       },
     };
+  }
+
+  async getOrders(query: AdminOrderListQueryDto) {
+    const qb = this.orderRepository
+      .createQueryBuilder('orders')
+      .leftJoinAndSelect('orders.product', 'product')
+      .leftJoinAndSelect('orders.user', 'user')
+      .leftJoinAndSelect('orders.payment', 'payment');
+
+    if (query.status && query.status !== 'ALL') {
+      qb.andWhere('orders.status = :status', { status: query.status });
+    }
+
+    if (query.paymentStatus && query.paymentStatus !== 'ALL') {
+      qb.andWhere('payment.status = :paymentStatus', {
+        paymentStatus: query.paymentStatus,
+      });
+    }
+
+    if (query.userId) {
+      qb.andWhere('orders.userId = :userId', { userId: query.userId });
+    }
+
+    if (query.startDate) {
+      const start = new Date(query.startDate);
+      start.setHours(0, 0, 0, 0);
+      qb.andWhere('orders.createdAt >= :startDate', {
+        startDate: start,
+      });
+    }
+    if (query.endDate) {
+      const end = new Date(query.endDate);
+      end.setHours(23, 59, 59, 999);
+      qb.andWhere('orders.createdAt <= :endDate', {
+        endDate: end,
+      });
+    }
+
+    const [items, total] = await qb
+      .orderBy('orders.createdAt', 'DESC')
+      .skip(query.offset)
+      .take(query.limit)
+      .getManyAndCount();
+
+    return {
+      success: true,
+      data: {
+        items: items.map((order) => ({
+          order_id: order.id,
+          order_status: order.status,
+          total_amount: order.totalAmount,
+          created_at: order.createdAt,
+          product: {
+            id: order.product?.id ?? null,
+            name: order.product?.name ?? null,
+            product_type: order.product?.productType ?? null,
+          },
+          payment: order.payment
+            ? {
+                id: order.payment.id,
+                status: order.payment.status,
+                amount: order.payment.amount,
+                approved_at: order.payment.approvedAt,
+                method: order.payment.method,
+              }
+            : null,
+          user: order.user
+            ? {
+                id: order.user.id,
+                nickname: order.user.nickname,
+                email: order.user.email,
+                phone_number: order.user.phoneNumber,
+              }
+            : null,
+        })),
+        total,
+        limit: query.limit,
+        offset: query.offset,
+      },
+    };
+  }
+
+  async getOrderDetail(orderId: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: {
+        product: true,
+        user: true,
+        payment: { cancels: true },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    const payment = order.payment ?? null;
+    const paymentMethod =
+      payment?.method ?? (payment?.virtualAccount ? 'VIRTUAL_ACCOUNT' : null);
+
+    return {
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          status: order.status,
+          total_amount: order.totalAmount,
+          time_option: order.timeOption,
+          custom_open_at: order.customOpenAt,
+          headcount: order.headcount,
+          photo_count: order.photoCount,
+          add_music: order.addMusic,
+          add_video: order.addVideo,
+          capsule_title: order.capsuleTitle,
+          created_at: order.createdAt,
+          updated_at: order.updatedAt,
+        },
+        product: order.product
+          ? {
+              id: order.product.id,
+              name: order.product.name,
+              product_type: order.product.productType,
+              price: order.product.price,
+              description: order.product.description,
+            }
+          : null,
+        user: order.user
+          ? {
+              id: order.user.id,
+              nickname: order.user.nickname,
+              email: order.user.email,
+              phone_number: order.user.phoneNumber,
+            }
+          : null,
+        payment: payment
+          ? {
+              id: payment.id,
+              payment_key: payment.paymentKey,
+              status: payment.status,
+              amount: payment.amount,
+              method: paymentMethod,
+              approved_at: payment.approvedAt,
+              receipt_url: payment.receiptUrl,
+              cancels: payment.cancels ?? [],
+            }
+          : null,
+      },
+    };
+  }
+
+  async updateOrderStatus(orderId: string, dto: AdminOrderStatusUpdateDto) {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: { payment: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('ORDER_NOT_FOUND');
+    }
+
+    this.validateStatusTransition(order.status, dto.status);
+
+    const updated = await this.orderRepository.manager.transaction(
+      async (manager) => {
+        const orderRepo = manager.getRepository(Order);
+        const paymentRepo = manager.getRepository(Payment);
+
+        order.status = dto.status;
+        order.updatedAt = new Date();
+        const savedOrder = await orderRepo.save(order);
+
+        if (order.payment) {
+          if (dto.status === OrderStatus.PAID) {
+            order.payment.status = PaymentStatus.PAID;
+          } else if (dto.status === OrderStatus.CANCELED) {
+            order.payment.status = PaymentStatus.CANCELED;
+          } else if (dto.status === OrderStatus.FAILED) {
+            order.payment.status = PaymentStatus.FAILED;
+          }
+          await paymentRepo.save(order.payment);
+        }
+
+        return savedOrder;
+      },
+    );
+
+    if (dto.status === OrderStatus.PAID) {
+      await this.stepRoomService.createCapsuleWithStepRoom(updated.id);
+    }
+
+    return {
+      success: true,
+      data: {
+        order_id: updated.id,
+        order_status: updated.status,
+        updated_at: updated.updatedAt,
+        payment_status: order.payment?.status ?? null,
+      },
+    };
+  }
+
+  async cancelPayment(paymentId: string, dto: AdminPaymentCancelDto) {
+    return this.paymentsService.adminCancelPayment(paymentId, dto);
+  }
+
+  async getPaymentLogs(query: AdminPaymentLogsQueryDto) {
+    const qb = this.paymentRepository
+      .createQueryBuilder('payment')
+      .leftJoinAndSelect('payment.order', 'order')
+      .leftJoinAndSelect('order.user', 'user');
+
+    if (query.status && query.status !== 'ALL') {
+      qb.andWhere('payment.status = :status', { status: query.status });
+    } else {
+      qb.andWhere(
+        '(payment.status = :failedStatus OR payment.fail_code IS NOT NULL OR payment.toss_status IN (:...tossStatuses))',
+        {
+          failedStatus: PaymentStatus.FAILED,
+          tossStatuses: ['ABORTED', 'EXPIRED'],
+        },
+      );
+    }
+
+    if (query.userId) {
+      qb.andWhere('order.userId = :userId', { userId: query.userId });
+    }
+
+    if (query.startDate) {
+      const start = new Date(query.startDate);
+      start.setHours(0, 0, 0, 0);
+      qb.andWhere('payment.createdAt >= :startDate', {
+        startDate: start,
+      });
+    }
+    if (query.endDate) {
+      const end = new Date(query.endDate);
+      end.setHours(23, 59, 59, 999);
+      qb.andWhere('payment.createdAt <= :endDate', {
+        endDate: end,
+      });
+    }
+
+    const [items, total] = await qb
+      .orderBy('payment.createdAt', 'DESC')
+      .skip(query.offset)
+      .take(query.limit)
+      .getManyAndCount();
+
+    return {
+      success: true,
+      data: {
+        items: items.map((payment) => ({
+          payment_id: payment.id,
+          order_id: payment.orderId,
+          payment_key: payment.paymentKey,
+          status: payment.status,
+          toss_status: payment.tossStatus,
+          method: payment.method,
+          fail_code: payment.failCode,
+          fail_message: payment.failMessage,
+          amount: payment.amount,
+          requested_at: payment.requestedAt,
+          approved_at: payment.approvedAt,
+          created_at: payment.createdAt,
+          user: payment.order?.user
+            ? {
+                id: payment.order.user.id,
+                nickname: payment.order.user.nickname,
+                email: payment.order.user.email,
+                phone_number: payment.order.user.phoneNumber,
+              }
+            : null,
+        })),
+        total,
+        limit: query.limit,
+        offset: query.offset,
+      },
+    };
+  }
+
+  async issueReceipt(orderId: string, dto: AdminReceiptIssueDto) {
+    if (dto.email) {
+      // 이메일 전송 기능은 인프라 구성 전이므로 URL만 반환
+    }
+    return this.paymentsService.issueReceiptForOrder(orderId);
+  }
+
+  private validateStatusTransition(
+    currentStatus: OrderStatus,
+    newStatus: OrderStatus,
+  ): void {
+    if (currentStatus === newStatus) {
+      return;
+    }
+
+    if (currentStatus === OrderStatus.PENDING_PAYMENT) {
+      if (
+        newStatus === OrderStatus.PAID ||
+        newStatus === OrderStatus.CANCELED ||
+        newStatus === OrderStatus.FAILED
+      ) {
+        return;
+      }
+    }
+
+    if (currentStatus === OrderStatus.PAID) {
+      if (newStatus === OrderStatus.CANCELED) {
+        return;
+      }
+    }
+
+    if (
+      currentStatus === OrderStatus.CANCELED ||
+      currentStatus === OrderStatus.FAILED
+    ) {
+      throw new BadRequestException(
+        `INVALID_STATUS_TRANSITION: Cannot change from ${currentStatus} to ${newStatus}`,
+      );
+    }
+
+    throw new BadRequestException(
+      `INVALID_STATUS_TRANSITION: Cannot change from ${currentStatus} to ${newStatus}`,
+    );
   }
 
   private resolveDateRange(

@@ -11,6 +11,7 @@ import {
   CapsuleAccessLog,
   Payment,
   Notice,
+  Order,
 } from '../entities';
 import { AdminAuthController } from './auth/admin-auth.controller';
 import { AdminAuthService } from './auth/admin-auth.service';
@@ -25,6 +26,8 @@ import { AdminChatGateway } from './inquiries/admin-chat.gateway';
 import { UserChatGateway } from './inquiries/user-chat.gateway';
 import { AuthModule } from '../auth/auth.module';
 import { NoticesModule } from '../notices/notices.module';
+import { PaymentsModule } from '../payments/payments.module';
+import { CapsulesModule } from '../capsules/capsules.module';
 import { AdminNoticesController } from './notices/admin-notices.controller';
 
 @Module({
@@ -32,6 +35,8 @@ import { AdminNoticesController } from './notices/admin-notices.controller';
     ConfigModule,
     AuthModule,
     NoticesModule,
+    PaymentsModule,
+    CapsulesModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -51,6 +56,7 @@ import { AdminNoticesController } from './notices/admin-notices.controller';
       CapsuleAccessLog,
       Payment,
       Notice,
+      Order,
     ]),
   ],
   controllers: [
