@@ -18,6 +18,7 @@ import { AdminOrderStatusUpdateDto } from './dto/admin-order-status-update.dto';
 import { AdminPaymentLogsQueryDto } from './dto/admin-payment-logs-query.dto';
 import { AdminReceiptIssueDto } from './dto/admin-receipt-issue.dto';
 import { AdminPaymentCancelDto } from './dto/admin-payment-cancel.dto';
+import { AdminUserTrendsQueryDto } from './dto/admin-user-trends-query.dto';
 
 @ApiTags('Admin - Dashboard')
 @ApiBearerAuth('access-token')
@@ -36,6 +37,12 @@ export class AdminDashboardController {
   @ApiOperation({ summary: '대시보드 차트 데이터 조회' })
   getCharts(@Query() query: AdminDashboardChartQueryDto) {
     return this.adminDashboardService.getCharts(query);
+  }
+
+  @Get('user-trends')
+  @ApiOperation({ summary: '최근 90일 가입/탈퇴 추이 조회' })
+  getUserTrends(@Query() query: AdminUserTrendsQueryDto) {
+    return this.adminDashboardService.getUserTrends(query);
   }
 
   @Get('orders')

@@ -1,0 +1,50 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Admin User Trends API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/admin/dashboard/user-trends": {
+      "get": {
+        "summary": "최근 90일 가입/탈퇴 추이",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["90d"]
+            },
+            "description": "기간 (현재는 90d만 허용)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": { "type": "string", "format": "date" },
+                      "joined": { "type": "integer" },
+                      "withdrawn": { "type": "integer" }
+                    },
+                    "required": ["date", "joined", "withdrawn"]
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "잘못된 요청" },
+          "401": { "description": "인증 실패" },
+          "403": { "description": "권한 없음" }
+        }
+      }
+    }
+  }
+}

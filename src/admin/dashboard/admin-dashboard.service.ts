@@ -19,6 +19,7 @@ import { AdminOrderStatusUpdateDto } from './dto/admin-order-status-update.dto';
 import { AdminPaymentLogsQueryDto } from './dto/admin-payment-logs-query.dto';
 import { AdminReceiptIssueDto } from './dto/admin-receipt-issue.dto';
 import { AdminPaymentCancelDto } from './dto/admin-payment-cancel.dto';
+import { AdminUserTrendsQueryDto } from './dto/admin-user-trends-query.dto';
 import { PaymentsService } from '../../payments/payments.service';
 import { CapsulesStepRoomService } from '../../capsules/capsules-step-room.service';
 
@@ -130,6 +131,63 @@ export class AdminDashboardService {
         endDate: end.toISOString(),
         items,
       },
+    };
+  }
+
+  async getUserTrends(query: AdminUserTrendsQueryDto) {
+    const period = (query.period ?? '90d').toLowerCase();
+    if (period !== '90d') {
+      throw new BadRequestException('INVALID_PERIOD');
+    }
+
+    const end = this.endOfDay(new Date());
+    const start = this.startOfDay(new Date(end));
+    start.setDate(start.getDate() - 89);
+
+    const joinedRows = await this.userRepository
+      .createQueryBuilder('user')
+      .withDeleted()
+      .select('DATE(user.created_at)', 'date')
+      .addSelect('COUNT(*)', 'count')
+      .where('user.created_at BETWEEN :start AND :end', { start, end })
+      .groupBy('date')
+      .orderBy('date', 'ASC')
+      .getRawMany<{ date: string | Date; count: string }>();
+
+    const withdrawnRows = await this.userRepository
+      .createQueryBuilder('user')
+      .withDeleted()
+      .select('DATE(user.deleted_at)', 'date')
+      .addSelect('COUNT(*)', 'count')
+      .where('user.deleted_at IS NOT NULL')
+      .andWhere('user.deleted_at BETWEEN :start AND :end', { start, end })
+      .groupBy('date')
+      .orderBy('date', 'ASC')
+      .getRawMany<{ date: string | Date; count: string }>();
+
+    const joinedMap = new Map(
+      joinedRows.map((row) => [
+        this.normalizeDateOnly(row.date),
+        Number(row.count),
+      ]),
+    );
+    const withdrawnMap = new Map(
+      withdrawnRows.map((row) => [
+        this.normalizeDateOnly(row.date),
+        Number(row.count),
+      ]),
+    );
+
+    const buckets = this.buildBuckets('day', start, end);
+    const items = buckets.map((date) => ({
+      date,
+      joined: joinedMap.get(date) ?? 0,
+      withdrawn: withdrawnMap.get(date) ?? 0,
+    }));
+
+    return {
+      success: true,
+      data: items,
     };
   }
 
@@ -509,6 +567,13 @@ export class AdminDashboardService {
       return date.toISOString().slice(0, 7);
     }
     return date.toISOString().slice(0, 10);
+  }
+
+  private normalizeDateOnly(value: string | Date) {
+    if (value instanceof Date) {
+      return this.formatBucket(value, 'day');
+    }
+    return value.slice(0, 10);
   }
 
   private startOfDay(date: Date) {

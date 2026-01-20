@@ -103,6 +103,18 @@ async function cleanupUser(id: string) {
   await client.query('DELETE FROM users WHERE id = $1', [id]);
 }
 
+async function setUserDeletedAt(id: string, deletedAt: Date) {
+  await client.query(
+    `
+    UPDATE users
+    SET deleted_at = $2,
+        is_active = false
+    WHERE id = $1
+    `,
+    [id, deletedAt],
+  );
+}
+
 async function createCustomerService(userId: string, createdAt?: Date) {
   const id = crypto.randomUUID();
   await client.query(
@@ -440,6 +452,79 @@ test('GET /api/admin/dashboard/charts 200: 차트 데이터', async () => {
   await cleanupOrders();
   await cleanupProducts();
   await cleanupUser(user.id);
+  await cleanupAdminUser(admin.id);
+});
+
+test('GET /api/admin/dashboard/user-trends 200: 가입/탈퇴 추이', async () => {
+  const admin = await createAdminUser(
+    'admin_user_trends@example.com',
+    'password1234',
+  );
+  const loginRes = await api.post('/api/admin/auth/login', {
+    data: { email: admin.email, password: 'password1234' },
+  });
+  const loginBody = await loginRes.json();
+
+  const baseRes = await api.get('/api/admin/dashboard/user-trends', {
+    headers: { Authorization: `Bearer ${loginBody.accessToken}` },
+    params: { period: '90d' },
+  });
+  const baseBody = await baseRes.json();
+  const baseData = baseBody.data ?? [];
+  const baseJoinedTotal = baseData.reduce(
+    (sum: number, row: { joined?: number }) => sum + (row.joined ?? 0),
+    0,
+  );
+  const baseWithdrawnTotal = baseData.reduce(
+    (sum: number, row: { withdrawn?: number }) => sum + (row.withdrawn ?? 0),
+    0,
+  );
+
+  const joinedDate = new Date();
+  joinedDate.setDate(joinedDate.getDate() - 2);
+  joinedDate.setHours(12, 0, 0, 0);
+
+  const withdrawnDate = new Date();
+  withdrawnDate.setDate(withdrawnDate.getDate() - 1);
+  withdrawnDate.setHours(12, 0, 0, 0);
+
+  const joinedUser = await createUser(
+    '가입추이유저',
+    'joined@example.com',
+    true,
+    joinedDate,
+  );
+  const withdrawnUser = await createUser(
+    '탈퇴추이유저',
+    'withdrawn@example.com',
+    false,
+    withdrawnDate,
+  );
+  await setUserDeletedAt(withdrawnUser.id, withdrawnDate);
+
+  const res = await api.get('/api/admin/dashboard/user-trends', {
+    headers: { Authorization: `Bearer ${loginBody.accessToken}` },
+    params: { period: '90d' },
+  });
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+
+  expect(body.data.length).toBe(90);
+
+  const nextJoinedTotal = body.data.reduce(
+    (sum: number, row: { joined?: number }) => sum + (row.joined ?? 0),
+    0,
+  );
+  const nextWithdrawnTotal = body.data.reduce(
+    (sum: number, row: { withdrawn?: number }) => sum + (row.withdrawn ?? 0),
+    0,
+  );
+
+  expect(nextJoinedTotal).toBe(baseJoinedTotal + 2);
+  expect(nextWithdrawnTotal).toBe(baseWithdrawnTotal + 1);
+
+  await cleanupUser(joinedUser.id);
+  await cleanupUser(withdrawnUser.id);
   await cleanupAdminUser(admin.id);
 });
 
