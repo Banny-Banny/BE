@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import {
   GetObjectCommand,
@@ -284,6 +284,18 @@ export class MediaService {
 
     // 5. 모든 권한 체크 실패 -> 접근 불가
     throw new NotFoundException('MEDIA_NOT_FOUND');
+  }
+
+  async findMediaByObjectKeys(userId: string, objectKeys: string[]) {
+    if (!objectKeys || objectKeys.length === 0) {
+      return [];
+    }
+    return this.mediaRepo.find({
+      where: {
+        userId,
+        objectKey: In(objectKeys),
+      },
+    });
   }
 
   /**

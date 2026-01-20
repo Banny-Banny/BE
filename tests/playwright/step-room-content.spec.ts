@@ -805,6 +805,125 @@ test.describe('Step Room Content Save API', () => {
     expect(slotCheck.rows[0].image_ids).toEqual(existingImages);
   });
 
+  test('should patch content and merge existing images with new images', async () => {
+    // 1. 주문 및 캡슐 생성
+    const orderResponse = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${authToken}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        headcount: 2,
+        time_option: '1_WEEK',
+        photo_count: 2,
+        add_music: false,
+        add_video: false,
+      },
+    });
+
+    expect(orderResponse.ok()).toBeTruthy();
+    const orderData = await orderResponse.json();
+    const testOrderId = orderData.order_id;
+
+    // 2. 결제 완료 처리
+    const paymentId = crypto.randomUUID();
+    const paymentKey = `test-payment-${Date.now()}`;
+    await client.query(
+      `INSERT INTO payments (id, order_id, payment_key, amount, status, currency, pg_tid, approved_at)
+       VALUES ($1, $2, $3, 0, 'PAID', 'KRW', $3, NOW())`,
+      [paymentId, testOrderId, paymentKey],
+    );
+    await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+      testOrderId,
+    ]);
+
+    // 3. 캡슐 생성
+    const testCapsuleId = crypto.randomUUID();
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await client.query(
+      `INSERT INTO capsules (id, user_id, capsule_type, title)
+       VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐')`,
+      [testCapsuleId, userId],
+    );
+    await client.query(
+      `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, invite_code, deadline, room_status)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days', true, $3, NOW() + INTERVAL '24 hours', 'WAITING')`,
+      [testCapsuleId, testOrderId, inviteCode],
+    );
+
+    // 슬롯 생성
+    for (let i = 0; i < 2; i++) {
+      await client.query(
+        `INSERT INTO capsule_participant_slots (capsule_id, slot_index, user_id, status)
+         VALUES ($1, $2, $3, $4)`,
+        [testCapsuleId, i, i === 0 ? userId : null, 'PENDING'],
+      );
+    }
+
+    // 4. 기존 이미지(Media) 생성 및 슬롯에 연결
+    const existingMediaId = crypto.randomUUID();
+    const existingObjectKey = `media/${userId}/IMAGE/${crypto.randomUUID()}.jpg`;
+    await client.query(
+      `INSERT INTO media (id, user_id, object_key, type, content_type, size)
+       VALUES ($1, $2, $3, 'IMAGE', 'image/jpeg', 1024)`,
+      [existingMediaId, userId, existingObjectKey],
+    );
+    await client.query(
+      `
+      UPDATE capsule_participant_slots
+      SET text_message = $1, status = 'COMPLETED', image_ids = $2
+      WHERE capsule_id = $3 AND user_id = $4
+      `,
+      ['기존 메시지', [existingMediaId], testCapsuleId, userId],
+    );
+
+    const existingImageUrl = `https://storage.example.com/${existingObjectKey}`;
+    const pngBuffer = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    // 5. 기존 이미지 유지 + 새 이미지 추가
+    const patchResponse = await api.patch(
+      `/api/capsules/step-rooms/${testCapsuleId}/my-content`,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+        multipart: {
+          text_message: '이미지 추가 후 메시지입니다.',
+          existing_image_urls: existingImageUrl,
+          images: {
+            name: 'new-image.png',
+            mimeType: 'image/png',
+            buffer: pngBuffer,
+          },
+        },
+      },
+    );
+
+    if (!patchResponse.ok()) {
+      console.error(
+        'Content patch failed:',
+        patchResponse.status(),
+        await patchResponse.text(),
+      );
+    }
+    expect(patchResponse.ok()).toBeTruthy();
+    const result = await patchResponse.json();
+    expect(result.success).toBe(true);
+    expect(result.data.uploaded_images).toBe(2);
+
+    const slotCheck = await client.query(
+      `
+      SELECT image_ids
+      FROM capsule_participant_slots
+      WHERE capsule_id = $1 AND user_id = $2
+      `,
+      [testCapsuleId, userId],
+    );
+    expect(slotCheck.rows[0].image_ids).toContain(existingMediaId);
+    expect(slotCheck.rows[0].image_ids).toHaveLength(2);
+  });
+
   test('should return 404 when patching without existing content', async () => {
     // 1. 주문 및 캡슐 생성
     const orderResponse = await api.post('/api/orders', {

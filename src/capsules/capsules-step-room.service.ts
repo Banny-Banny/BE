@@ -248,6 +248,16 @@ export class CapsulesStepRoomService {
     // 개별 검증만으로 충분함
   }
 
+  private extractObjectKeyFromUrl(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+      const key = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+      return key.length > 0 ? key : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * 스텝룸 콘텐츠 저장 (트랜잭션)
    */
@@ -350,6 +360,7 @@ export class CapsulesStepRoomService {
    */
   private async patchStepRoomContentTransaction(
     capsule: Capsule,
+    order: Order,
     userId: string,
     user: User,
     patchContentDto: PatchContentDto,
@@ -388,9 +399,60 @@ export class CapsulesStepRoomService {
         slot.textMessage = patchContentDto.text_message;
       }
 
-      if (files.images && files.images.length > 0) {
-        const uploadedImageIds: string[] = [];
-        for (const imageFile of files.images) {
+      const existingImageUrls = patchContentDto.existing_image_urls;
+      const hasExistingUrls = typeof existingImageUrls !== 'undefined';
+      const hasNewImages = !!(files.images && files.images.length > 0);
+
+      let keepImageIds: string[] = [];
+      if (hasExistingUrls) {
+        const objectKeys = existingImageUrls
+          .map((url) => this.extractObjectKeyFromUrl(url))
+          .filter((key): key is string => !!key);
+
+        if (objectKeys.length !== existingImageUrls.length) {
+          throw new BadRequestException({
+            success: false,
+            error: 'INVALID_IMAGE_URL',
+            message: '유효하지 않은 이미지 URL이 포함되어 있습니다',
+          });
+        }
+
+        const mediaEntities = await this.mediaService.findMediaByObjectKeys(
+          userId,
+          objectKeys,
+        );
+
+        if (mediaEntities.length !== objectKeys.length) {
+          throw new BadRequestException({
+            success: false,
+            error: 'IMAGE_NOT_FOUND',
+            message: '기존 이미지 URL을 찾을 수 없습니다',
+          });
+        }
+
+        const objectKeyToId = new Map(
+          mediaEntities.map((media) => [media.objectKey, media.id]),
+        );
+        keepImageIds = objectKeys
+          .map((key) => objectKeyToId.get(key))
+          .filter((id): id is string => !!id);
+
+        const slotImageIds = slot.imageIds ?? [];
+        const invalidIds = keepImageIds.filter(
+          (id) => !slotImageIds.includes(id),
+        );
+        if (invalidIds.length > 0) {
+          throw new BadRequestException({
+            success: false,
+            error: 'IMAGE_NOT_IN_SLOT',
+            message: '이 콘텐츠에 포함되지 않은 이미지 URL입니다',
+          });
+        }
+      }
+
+      const uploadedImageIds: string[] = [];
+      if (hasNewImages) {
+        for (const imageFile of files.images!) {
           const media = await this.mediaService.uploadMulterFile(
             userId,
             imageFile,
@@ -398,7 +460,29 @@ export class CapsulesStepRoomService {
           );
           uploadedImageIds.push(media.id);
         }
-        slot.imageIds = uploadedImageIds;
+      }
+
+      if (hasExistingUrls) {
+        const totalCount = keepImageIds.length + uploadedImageIds.length;
+        const maxImagesPerPerson = order.photoCount;
+        if (maxImagesPerPerson > 0 && totalCount > maxImagesPerPerson) {
+          throw new BadRequestException({
+            success: false,
+            error: 'IMAGE_LIMIT_EXCEEDED',
+            message: `사진은 최대 ${maxImagesPerPerson}장까지 업로드할 수 있습니다`,
+            data: {
+              max_images: maxImagesPerPerson,
+              uploaded_images: totalCount,
+            },
+          });
+        }
+      }
+
+      if (hasExistingUrls || hasNewImages) {
+        const mergedImageIds = hasExistingUrls
+          ? [...keepImageIds, ...uploadedImageIds]
+          : uploadedImageIds;
+        slot.imageIds = mergedImageIds.length > 0 ? mergedImageIds : null;
       }
 
       if (files.music && files.music.length > 0) {
@@ -1078,6 +1162,7 @@ export class CapsulesStepRoomService {
 
     return await this.patchStepRoomContentTransaction(
       capsule,
+      order,
       userId,
       user,
       patchContentDto,

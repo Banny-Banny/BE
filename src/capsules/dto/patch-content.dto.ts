@@ -1,5 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsArray, IsOptional, IsString } from 'class-validator';
+
+const toStringArray = ({ value }: { value: any }) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') return [value];
+  return value;
+};
 
 export class PatchContentDto {
   @ApiPropertyOptional({
@@ -17,6 +24,21 @@ export class PatchContentDto {
   })
   @IsOptional()
   images?: any;
+
+  @ApiPropertyOptional({
+    type: 'array',
+    items: { type: 'string', format: 'uri' },
+    description:
+      '유지할 기존 이미지 URL 배열 (전달 시 기존 이미지 중 해당 URL만 유지)',
+    example: [
+      'https://storage.example.com/media/user-id/image/uuid.jpg',
+    ],
+  })
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  existing_image_urls?: string[];
 
   @ApiPropertyOptional({
     type: 'string',
