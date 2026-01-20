@@ -77,13 +77,16 @@ async function cleanupUser(id: string) {
 }
 
 async function createProductTimeCapsule() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
   await client.query(
     `
     INSERT INTO products (id, name, price, product_type, is_active)
     VALUES ($1, 'time-capsule-product', 0, 'TIME_CAPSULE', true)
+    ON CONFLICT (id) DO UPDATE
+    SET name = EXCLUDED.name,
+        price = EXCLUDED.price,
+        product_type = EXCLUDED.product_type,
+        is_active = EXCLUDED.is_active,
+        deleted_at = NULL
     `,
     [TIME_CAPSULE_PRODUCT_ID],
   );
@@ -137,6 +140,84 @@ async function createOrder(token: string) {
   };
 }
 
+async function createOrderRecord(userId: string) {
+  const orderId = crypto.randomUUID();
+  const totalAmount = 1000;
+  await client.query(
+    `
+    INSERT INTO orders (
+      id,
+      user_id,
+      product_id,
+      total_amount,
+      time_option,
+      headcount,
+      photo_count,
+      add_music,
+      add_video,
+      status,
+      created_at
+    ) VALUES (
+      $1,
+      $2,
+      $3,
+      $4,
+      '1_WEEK',
+      2,
+      1,
+      false,
+      false,
+      'PENDING_PAYMENT',
+      NOW()
+    )
+    `,
+    [orderId, userId, TIME_CAPSULE_PRODUCT_ID, totalAmount],
+  );
+  return { orderId, totalAmount };
+}
+
+async function createPaidPayment(orderId: string, amount: number) {
+  const paymentId = crypto.randomUUID();
+  const paymentKey = `test_payment_key_${crypto.randomUUID()}`;
+  const pgTid = `PG-${crypto.randomUUID()}`;
+  await client.query(
+    `INSERT INTO payments (
+      id,
+      order_id,
+      payment_key,
+      order_no,
+      order_name,
+      toss_status,
+      method,
+      currency,
+      pg_tid,
+      amount,
+      status,
+      requested_at,
+      approved_at
+    ) VALUES (
+      $1,
+      $2,
+      $3,
+      $4,
+      'time-capsule',
+      'DONE',
+      'CARD',
+      'KRW',
+      $5,
+      $6,
+      'PAID',
+      NOW(),
+      NOW()
+    )`,
+    [paymentId, orderId, paymentKey, orderId, pgTid, amount],
+  );
+  await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+    orderId,
+  ]);
+  return paymentKey;
+}
+
 test.beforeAll(async () => {
   client = new Client(DB_CONFIG);
   await client.connect();
@@ -172,17 +253,8 @@ test.describe('GET /api/payments/toss/my-payments', () => {
   test('200: 본인의 결제 내역 조회 성공 (기본 페이지네이션)', async () => {
     // 1. 3개의 주문 생성 및 결제 승인
     for (let i = 0; i < 3; i++) {
-      const { orderId, totalAmount } = await createOrder(authToken);
-      const paymentKey = `test_payment_key_${Date.now()}_${i}`;
-      const confirmRes = await api.post('/api/payments/toss/confirm', {
-        headers: { Authorization: `Bearer ${authToken}` },
-        data: {
-          paymentKey,
-          orderId,
-          amount: totalAmount,
-        },
-      });
-      expect(confirmRes.status()).toBe(201);
+      const { orderId, totalAmount } = await createOrderRecord(userId);
+      await createPaidPayment(orderId, totalAmount);
     }
 
     // 2. 결제 내역 조회
@@ -209,16 +281,8 @@ test.describe('GET /api/payments/toss/my-payments', () => {
   test('200: 페이지네이션 적용 (page=2, limit=2)', async () => {
     // 1. 5개의 주문 생성 및 결제 승인
     for (let i = 0; i < 5; i++) {
-      const { orderId, totalAmount } = await createOrder(authToken);
-      const paymentKey = `test_payment_key_${Date.now()}_${i}`;
-      await api.post('/api/payments/toss/confirm', {
-        headers: { Authorization: `Bearer ${authToken}` },
-        data: {
-          paymentKey,
-          orderId,
-          amount: totalAmount,
-        },
-      });
+      const { orderId, totalAmount } = await createOrderRecord(userId);
+      await createPaidPayment(orderId, totalAmount);
       // 시간 간격을 두어 approvedAt 차이 확보
       await new Promise((resolve) => setTimeout(resolve, 10));
     }

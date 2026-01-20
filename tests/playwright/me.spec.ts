@@ -1398,7 +1398,7 @@ test('POST /api/admin/notifications 201: 전체 사용자에게 알림 발송', 
       targetType: 'ALL',
       title: '전체 알림',
       content: '모든 사용자에게 발송',
-      type: 'MARKETING',
+      type: 'SYSTEM',
     },
   });
 

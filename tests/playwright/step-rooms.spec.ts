@@ -25,6 +25,7 @@ const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440100';
 
 let api: APIRequestContext;
 let client: Client;
+const createdOrderIds: string[] = [];
 
 async function createUser() {
   const id = crypto.randomUUID();
@@ -91,34 +92,48 @@ async function cleanupUser(id: string) {
 }
 
 async function createProductTimeCapsule() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
   await client.query(
     `
     INSERT INTO products (id, name, price, product_type, is_active)
     VALUES ($1, 'time-capsule-product', 0, 'TIME_CAPSULE', true)
+    ON CONFLICT (id) DO UPDATE
+    SET name = EXCLUDED.name,
+        price = EXCLUDED.price,
+        product_type = EXCLUDED.product_type,
+        is_active = EXCLUDED.is_active,
+        deleted_at = NULL
     `,
     [TIME_CAPSULE_PRODUCT_ID],
   );
 }
 
 async function cleanupProducts() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM products
+    WHERE id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM orders WHERE product_id = $1
+      )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
 }
 
 async function cleanupOrdersAndPayments() {
+  if (createdOrderIds.length === 0) {
+    return;
+  }
   await client.query(
     `
     DELETE FROM capsule_participant_slots
     WHERE capsule_id IN (
       SELECT tc.capsule_id
       FROM time_capsules tc
-      WHERE tc.order_id IN (SELECT id FROM orders)
+      WHERE tc.order_id = ANY($1)
     )
     `,
+    [createdOrderIds],
   );
   await client.query(
     `
@@ -126,14 +141,18 @@ async function cleanupOrdersAndPayments() {
     WHERE id IN (
       SELECT tc.capsule_id
       FROM time_capsules tc
-      WHERE tc.order_id IN (SELECT id FROM orders)
+      WHERE tc.order_id = ANY($1)
     )
     `,
+    [createdOrderIds],
   );
-  await client.query(
-    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
-  );
-  await client.query('DELETE FROM orders');
+  await client.query('DELETE FROM payments WHERE order_id = ANY($1)', [
+    createdOrderIds,
+  ]);
+  await client.query('DELETE FROM orders WHERE id = ANY($1)', [
+    createdOrderIds,
+  ]);
+  createdOrderIds.length = 0;
 }
 
 async function createOrder(token: string, headcount = 3) {
@@ -153,7 +172,9 @@ async function createOrder(token: string, headcount = 3) {
   }
   expect(res.status()).toBe(201);
   const body = await res.json();
-  return body.order_id as string;
+  const orderId = body.order_id as string;
+  createdOrderIds.push(orderId);
+  return orderId;
 }
 
 test.beforeAll(async () => {

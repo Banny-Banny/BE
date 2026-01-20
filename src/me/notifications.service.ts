@@ -182,15 +182,21 @@ export class NotificationsService {
         );
       }
 
-      // Bulk insert
-      const notifications = activeUsers.map((user) => ({
-        userId: user.id,
-        title: dto.title,
-        content: dto.content,
-        type: dto.type,
-      }));
-
-      await this.notificationRepository.insert(notifications);
+      // Bulk insert (batch to avoid parameter limit)
+      const notifications = activeUsers
+        .map((user) => user.id)
+        .filter(Boolean)
+        .map((userId) => ({
+          userId,
+          title: dto.title,
+          content: dto.content,
+          type: dto.type,
+        }));
+      const chunkSize = 500;
+      for (let i = 0; i < notifications.length; i += chunkSize) {
+        const chunk = notifications.slice(i, i + chunkSize);
+        await this.notificationRepository.save(chunk);
+      }
 
       return new SendNotificationResponseDto(
         `알림이 ${activeUsers.length}명에게 발송되었습니다.`,

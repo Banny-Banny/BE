@@ -3,6 +3,8 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
   OneToMany,
   Check,
 } from 'typeorm';
@@ -73,7 +75,23 @@ export class Product {
     nullable: true,
     comment: '상품 상세 설명',
   })
-  description: string;
+  description: string | null;
+
+  @Column({
+    type: 'text',
+    name: 'thumbnail_url',
+    nullable: true,
+    comment: '상품 썸네일 URL',
+  })
+  thumbnailUrl: string | null;
+
+  @Column({
+    type: 'uuid',
+    name: 'category_id',
+    nullable: true,
+    comment: '상품 카테고리 ID',
+  })
+  categoryId: string | null;
 
   @Column({
     type: 'boolean',
@@ -85,6 +103,12 @@ export class Product {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', nullable: true })
+  updatedAt: Date | null;
+
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date | null;
 
   // Relations
   @OneToMany(() => Order, (order) => order.product)

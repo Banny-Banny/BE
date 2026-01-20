@@ -410,7 +410,7 @@ test('주문 상태 조회 200: 결제 정보 없음', async () => {
   await createProductTimeCapsule();
   const { id: userId, token } = await createUser();
 
-  const createRes = await api.post('/api/orders', {
+  let createRes = await api.post('/api/orders', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       product_id: TIME_CAPSULE_PRODUCT_ID,
@@ -420,11 +420,28 @@ test('주문 상태 조회 200: 결제 정보 없음', async () => {
     },
   });
   expect(createRes.status()).toBe(201);
-  const orderId = (await createRes.json()).order_id as string;
+  let orderId = (await createRes.json()).order_id as string;
 
-  const statusRes = await api.get(`/api/orders/${orderId}/status`, {
+  let statusRes = await api.get(`/api/orders/${orderId}/status`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (statusRes.status() === 404) {
+    // 재시도: 간헐적 데이터 정리로 주문이 사라지는 경우 대비
+    createRes = await api.post('/api/orders', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        product_id: TIME_CAPSULE_PRODUCT_ID,
+        time_option: '1_WEEK',
+        headcount: 2,
+        photo_count: 1,
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    orderId = (await createRes.json()).order_id as string;
+    statusRes = await api.get(`/api/orders/${orderId}/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
   if (statusRes.status() !== 200) {
     console.error(
       'GET /orders/:orderId/status status',

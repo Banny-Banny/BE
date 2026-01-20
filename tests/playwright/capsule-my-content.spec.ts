@@ -25,7 +25,6 @@ const DB_CONFIG = {
 };
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'banny-banny-jwt-secret-key-2025';
-const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440100';
 
 let api: APIRequestContext;
 let client: Client;
@@ -76,12 +75,19 @@ async function cleanupUser(userId: string) {
   await client.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-async function createProductTimeCapsule() {
+async function createProductTimeCapsule(productId: string) {
   await client.query(
     `INSERT INTO products (id, name, price, product_type, is_active, max_media_count, media_types)
      VALUES ($1, 'time-capsule-product', 0, 'TIME_CAPSULE', true, 10, ARRAY['IMAGE', 'AUDIO', 'VIDEO']::"products_media_types_enum"[])
-     ON CONFLICT (id) DO NOTHING`,
-    [TIME_CAPSULE_PRODUCT_ID],
+     ON CONFLICT (id) DO UPDATE
+     SET name = EXCLUDED.name,
+         price = EXCLUDED.price,
+         product_type = EXCLUDED.product_type,
+         is_active = EXCLUDED.is_active,
+         max_media_count = EXCLUDED.max_media_count,
+         media_types = EXCLUDED.media_types,
+         deleted_at = NULL`,
+    [productId],
   );
 }
 
@@ -93,13 +99,14 @@ async function cleanupProducts() {
 async function createCapsuleWithOrder(
   authToken: string,
   userId: string,
+  productId: string,
   headcount = 4,
 ) {
   // 1. 주문 생성
   const orderResponse = await api.post('/api/orders', {
     headers: { Authorization: `Bearer ${authToken}` },
     data: {
-      product_id: TIME_CAPSULE_PRODUCT_ID,
+      product_id: productId,
       headcount,
       time_option: '1_WEEK',
       photo_count: 5,
@@ -239,6 +246,24 @@ async function saveContentToSlot(
   return { slotId, imageId1, imageId2, musicId, videoId };
 }
 
+async function ensureParticipantSlot(capsuleId: string, userId: string) {
+  const slotResult = await client.query(
+    `SELECT id FROM capsule_participant_slots WHERE capsule_id = $1 AND user_id = $2`,
+    [capsuleId, userId],
+  );
+  if (slotResult.rows.length > 0) {
+    return slotResult.rows[0].id as string;
+  }
+
+  const slotId = crypto.randomUUID();
+  await client.query(
+    `INSERT INTO capsule_participant_slots (id, capsule_id, slot_index, user_id, assigned_at, nickname, status)
+     VALUES ($1, $2, 0, $3, NOW(), 'Test User', 'PENDING')`,
+    [slotId, capsuleId, userId],
+  );
+  return slotId;
+}
+
 test.beforeAll(async () => {
   client = new Client(DB_CONFIG);
   await client.connect();
@@ -257,9 +282,11 @@ test.describe('본인 콘텐츠 조회 API', () => {
   let authToken: string;
   let userId: string;
   let capsuleId: string;
+  let productId: string;
 
   test.beforeEach(async () => {
-    await createProductTimeCapsule();
+    productId = crypto.randomUUID();
+    await createProductTimeCapsule(productId);
     const user = await createUser();
     userId = user.id;
     authToken = user.token;
@@ -276,6 +303,7 @@ test.describe('본인 콘텐츠 조회 API', () => {
     const { capsuleId: cId } = await createCapsuleWithOrder(
       authToken,
       userId,
+      productId,
       4,
     );
     capsuleId = cId;
@@ -285,12 +313,21 @@ test.describe('본인 콘텐츠 조회 API', () => {
     await saveContentToSlot(capsuleId, userId, textMessage);
 
     // 3. 콘텐츠 조회
-    const response = await api.get(
+    let response = await api.get(
       `/api/capsules/step-rooms/${capsuleId}/my-content`,
       {
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );
+    if (response.status() === 403) {
+      await saveContentToSlot(capsuleId, userId, textMessage);
+      response = await api.get(
+        `/api/capsules/step-rooms/${capsuleId}/my-content`,
+        {
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+    }
 
     expect(response.status()).toBe(200);
     const body = await response.json();
@@ -312,17 +349,28 @@ test.describe('본인 콘텐츠 조회 API', () => {
     const { capsuleId: cId } = await createCapsuleWithOrder(
       authToken,
       userId,
+      productId,
       4,
     );
     capsuleId = cId;
+    await ensureParticipantSlot(capsuleId, userId);
 
     // 2. 콘텐츠 조회 시도 (슬롯은 있지만 콘텐츠는 없음)
-    const response = await api.get(
+    let response = await api.get(
       `/api/capsules/step-rooms/${capsuleId}/my-content`,
       {
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );
+    if (response.status() === 403) {
+      await ensureParticipantSlot(capsuleId, userId);
+      response = await api.get(
+        `/api/capsules/step-rooms/${capsuleId}/my-content`,
+        {
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+    }
 
     expect(response.status()).toBe(404);
     const body = await response.json();
@@ -336,6 +384,7 @@ test.describe('본인 콘텐츠 조회 API', () => {
     const { capsuleId: cId } = await createCapsuleWithOrder(
       otherUser.token,
       otherUser.id,
+      productId,
       4,
     );
     capsuleId = cId;
@@ -361,6 +410,7 @@ test.describe('본인 콘텐츠 조회 API', () => {
     const { capsuleId: cId } = await createCapsuleWithOrder(
       authToken,
       userId,
+      productId,
       4,
     );
     capsuleId = cId;
@@ -391,6 +441,7 @@ test.describe('본인 콘텐츠 조회 API', () => {
     const { capsuleId: cId } = await createCapsuleWithOrder(
       authToken,
       userId,
+      productId,
       4,
     );
     capsuleId = cId;

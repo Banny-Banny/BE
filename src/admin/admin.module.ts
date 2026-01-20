@@ -12,6 +12,7 @@ import {
   Payment,
   Notice,
   Order,
+  Product,
 } from '../entities';
 import { AdminAuthController } from './auth/admin-auth.controller';
 import { AdminAuthService } from './auth/admin-auth.service';
@@ -29,6 +30,8 @@ import { NoticesModule } from '../notices/notices.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { CapsulesModule } from '../capsules/capsules.module';
 import { AdminNoticesController } from './notices/admin-notices.controller';
+import { AdminProductsController } from './products/admin-products.controller';
+import { AdminProductsService } from './products/admin-products.service';
 
 @Module({
   imports: [
@@ -57,6 +60,7 @@ import { AdminNoticesController } from './notices/admin-notices.controller';
       Payment,
       Notice,
       Order,
+      Product,
     ]),
   ],
   controllers: [
@@ -65,6 +69,7 @@ import { AdminNoticesController } from './notices/admin-notices.controller';
     AdminUsersController,
     AdminInquiriesController,
     AdminNoticesController,
+    AdminProductsController,
   ],
   providers: [
     AdminAuthService,
@@ -74,6 +79,7 @@ import { AdminNoticesController } from './notices/admin-notices.controller';
     AdminInquiriesService,
     AdminChatGateway,
     UserChatGateway,
+    AdminProductsService,
   ],
 })
 export class AdminModule {}

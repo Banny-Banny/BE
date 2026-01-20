@@ -1,0 +1,118 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Admin Products Basic CRUD API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/admin/products": {
+      "post": {
+        "summary": "상품 등록",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "price": { "type": "integer" },
+                  "description": { "type": "string" },
+                  "thumbnailUrl": { "type": "string" },
+                  "categoryId": { "type": "string", "format": "uuid" },
+                  "isActive": { "type": "boolean" },
+                  "productType": { "type": "string" },
+                  "mediaTypes": { "type": "array", "items": { "type": "string" } },
+                  "maxMediaCount": { "type": "integer" }
+                },
+                "required": ["name", "price"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "생성 성공" },
+          "400": { "description": "잘못된 요청" },
+          "401": { "description": "인증 실패" },
+          "403": { "description": "권한 없음" }
+        }
+      },
+      "get": {
+        "summary": "상품 리스트 조회",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["ALL", "ACTIVE", "INACTIVE", "DELETED"]
+            }
+          },
+          { "name": "categoryId", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "성공" },
+          "401": { "description": "인증 실패" },
+          "403": { "description": "권한 없음" }
+        }
+      }
+    },
+    "/api/admin/products/{id}": {
+      "get": {
+        "summary": "상품 상세 조회",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "성공" },
+          "404": { "description": "존재하지 않음" }
+        }
+      },
+      "patch": {
+        "summary": "상품 정보 수정",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "price": { "type": "integer" },
+                  "description": { "type": "string" },
+                  "thumbnailUrl": { "type": "string" },
+                  "categoryId": { "type": "string" },
+                  "isActive": { "type": "boolean" },
+                  "productType": { "type": "string" },
+                  "mediaTypes": { "type": "array", "items": { "type": "string" } },
+                  "maxMediaCount": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "수정 성공" },
+          "400": { "description": "잘못된 요청" },
+          "404": { "description": "존재하지 않음" }
+        }
+      },
+      "delete": {
+        "summary": "상품 삭제 (soft delete)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "삭제 성공" },
+          "404": { "description": "존재하지 않음" }
+        }
+      }
+    }
+  }
+}

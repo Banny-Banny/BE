@@ -25,6 +25,7 @@ const TIME_CAPSULE_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440100';
 
 let api: APIRequestContext;
 let client: Client;
+const createdOrderIds: string[] = [];
 
 async function createUser(nickname: string = 'test-user') {
   const id = crypto.randomUUID();
@@ -85,56 +86,75 @@ async function cleanupUser(id: string) {
 }
 
 async function createProductTimeCapsule() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
   await client.query(
     `
     INSERT INTO products (id, name, price, product_type, is_active)
     VALUES ($1, 'time-capsule-product', 0, 'TIME_CAPSULE', true)
+    ON CONFLICT (id) DO UPDATE
+    SET name = EXCLUDED.name,
+        price = EXCLUDED.price,
+        product_type = EXCLUDED.product_type,
+        is_active = EXCLUDED.is_active,
+        deleted_at = NULL
     `,
     [TIME_CAPSULE_PRODUCT_ID],
   );
 }
 
 async function cleanupProducts() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM products
+    WHERE id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM orders WHERE product_id = $1
+      )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
 }
 
 async function cleanupOrdersAndPayments() {
+  if (createdOrderIds.length === 0) {
+    return;
+  }
   await client.query(
     `
     DELETE FROM capsule_participant_slots
     WHERE capsule_id IN (
       SELECT capsule_id FROM time_capsules
-      WHERE order_id IN (SELECT id FROM orders)
+      WHERE order_id = ANY($1)
     )
     `,
+    [createdOrderIds],
   );
   await client.query(
     `
     DELETE FROM capsule_access_logs
     WHERE capsule_id IN (
       SELECT capsule_id FROM time_capsules
-      WHERE order_id IN (SELECT id FROM orders)
+      WHERE order_id = ANY($1)
     )
     `,
+    [createdOrderIds],
   );
   await client.query(
     `
     DELETE FROM capsules
     WHERE id IN (
       SELECT capsule_id FROM time_capsules
-      WHERE order_id IN (SELECT id FROM orders)
+      WHERE order_id = ANY($1)
     )
     `,
+    [createdOrderIds],
   );
-  await client.query(
-    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
-  );
-  await client.query('DELETE FROM orders');
+  await client.query('DELETE FROM payments WHERE order_id = ANY($1)', [
+    createdOrderIds,
+  ]);
+  await client.query('DELETE FROM orders WHERE id = ANY($1)', [
+    createdOrderIds,
+  ]);
+  createdOrderIds.length = 0;
 }
 
 async function createOrder(token: string, headcount = 3) {
@@ -151,7 +171,50 @@ async function createOrder(token: string, headcount = 3) {
   });
   expect(res.status()).toBe(201);
   const body = await res.json();
-  return body.order_id as string;
+  const orderId = body.order_id as string;
+  createdOrderIds.push(orderId);
+  return orderId;
+}
+
+async function createTimeCapsuleForOrder(
+  orderId: string,
+  ownerId: string,
+  headcount: number,
+) {
+  await client.query(`UPDATE orders SET status = 'PAID' WHERE id = $1`, [
+    orderId,
+  ]);
+  const capsuleId = crypto.randomUUID();
+  const openAt = new Date();
+  openAt.setDate(openAt.getDate() + 7);
+
+  await client.query(
+    `INSERT INTO capsules (id, user_id, capsule_type, title, created_at)
+     VALUES ($1, $2, 'TIME_CAPSULE', '테스트 캡슐', NOW())`,
+    [capsuleId, ownerId],
+  );
+  await client.query(
+    `INSERT INTO time_capsules (capsule_id, order_id, open_at, is_locked, room_status)
+     VALUES ($1, $2, $3, true, 'WAITING')`,
+    [capsuleId, orderId, openAt],
+  );
+
+  for (let i = 0; i < headcount; i++) {
+    const slotId = crypto.randomUUID();
+    await client.query(
+      `INSERT INTO capsule_participant_slots (id, capsule_id, slot_index, status, created_at)
+       VALUES ($1, $2, $3, 'PENDING', NOW())`,
+      [slotId, capsuleId, i],
+    );
+  }
+  await client.query(
+    `UPDATE capsule_participant_slots
+     SET user_id = $1, assigned_at = NOW(), nickname = '방장'
+     WHERE capsule_id = $2 AND slot_index = 0`,
+    [ownerId, capsuleId],
+  );
+
+  return capsuleId;
 }
 
 test.beforeAll(async () => {
@@ -570,16 +633,7 @@ test.describe('/timecapsules/:id API (참여자 확인 방식)', () => {
     const owner = await createUser('방장');
 
     const orderId = await createOrder(owner.token, 2);
-    await api.post('/api/payments/kakao/ready', {
-      headers: { Authorization: `Bearer ${owner.token}` },
-      data: { order_id: orderId },
-    });
-    const approveRes = await api.post('/api/payments/kakao/approve', {
-      headers: { Authorization: `Bearer ${owner.token}` },
-      data: { order_id: orderId, pg_token: 'PGTOKEN-MOCK' },
-    });
-    const approveBody = await approveRes.json();
-    const capsuleId = approveBody.step_room.room_id;
+    const capsuleId = await createTimeCapsuleForOrder(orderId, owner.id, 2);
 
     // 토큰 없이 조회
     const res = await api.get(`/api/timecapsules/${capsuleId}`);

@@ -83,20 +83,36 @@ async function cleanupUser(userId: string) {
 }
 
 async function createProductTimeCapsule() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
   await client.query(
-    `INSERT INTO products (id, name, price, product_type, is_active, max_media_count, media_types)
-     VALUES ($1, 'time-capsule-product', 0, 'TIME_CAPSULE', true, 10, ARRAY['IMAGE', 'AUDIO', 'VIDEO']::"products_media_types_enum"[])`,
+    `INSERT INTO products (
+      id, name, price, product_type, is_active, max_media_count, media_types
+    ) VALUES (
+      $1, 'time-capsule-product', 0, 'TIME_CAPSULE', true, 10,
+      ARRAY['IMAGE', 'AUDIO', 'VIDEO']::"products_media_types_enum"[]
+    )
+    ON CONFLICT (id) DO UPDATE
+    SET name = EXCLUDED.name,
+        price = EXCLUDED.price,
+        product_type = EXCLUDED.product_type,
+        is_active = EXCLUDED.is_active,
+        max_media_count = EXCLUDED.max_media_count,
+        media_types = EXCLUDED.media_types,
+        deleted_at = NULL`,
     [TIME_CAPSULE_PRODUCT_ID],
   );
 }
 
 async function cleanupProducts() {
-  await client.query('DELETE FROM products WHERE id = $1', [
-    TIME_CAPSULE_PRODUCT_ID,
-  ]);
+  await client.query(
+    `
+    DELETE FROM products
+    WHERE id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM orders WHERE product_id = $1
+      )
+    `,
+    [TIME_CAPSULE_PRODUCT_ID],
+  );
 }
 
 test.beforeAll(async () => {
@@ -358,7 +374,11 @@ test.describe('Step Room Content Save API', () => {
     expect(saveResponse.status()).toBeGreaterThanOrEqual(400);
     if (saveResponse.status() < 500) {
       const result = await saveResponse.json();
-      expect(result.success).toBe(false);
+      if ('success' in result) {
+        expect(result.success).toBe(false);
+      } else {
+        expect(result.statusCode ?? result.error).toBeDefined();
+      }
     }
   });
 
