@@ -18,6 +18,7 @@ import {
   CapsuleParticipantSlot,
   CapsuleEntry,
   Notification,
+  Notice,
 } from '../entities';
 
 /**
@@ -84,6 +85,7 @@ const dataSource = new DataSource({
     CustomerServiceMessage,
     Media,
     Notification,
+    Notice,
   ],
   // ts-node 실행 시 TS, 빌드 산출물 실행 시 JS 마이그레이션을 로드
   migrations: [migrationsGlob],

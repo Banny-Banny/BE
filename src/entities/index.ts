@@ -15,3 +15,4 @@ export * from './media.entity';
 export * from './capsule-participant-slot.entity';
 export * from './capsule-entry.entity';
 export * from './notification.entity';
+export * from './notice.entity';

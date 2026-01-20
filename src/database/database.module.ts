@@ -19,6 +19,7 @@ import {
   CapsuleParticipantSlot,
   CapsuleEntry,
   Notification,
+  Notice,
 } from '../entities';
 
 @Module({
@@ -56,6 +57,7 @@ import {
           CustomerServiceMessage,
           Media,
           Notification,
+          Notice,
         ];
 
         const extra = {

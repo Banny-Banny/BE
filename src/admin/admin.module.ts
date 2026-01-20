@@ -10,6 +10,7 @@ import {
   CustomerServiceMessage,
   CapsuleAccessLog,
   Payment,
+  Notice,
 } from '../entities';
 import { AdminAuthController } from './auth/admin-auth.controller';
 import { AdminAuthService } from './auth/admin-auth.service';
@@ -23,11 +24,14 @@ import { AdminInquiriesService } from './inquiries/admin-inquiries.service';
 import { AdminChatGateway } from './inquiries/admin-chat.gateway';
 import { UserChatGateway } from './inquiries/user-chat.gateway';
 import { AuthModule } from '../auth/auth.module';
+import { NoticesModule } from '../notices/notices.module';
+import { AdminNoticesController } from './notices/admin-notices.controller';
 
 @Module({
   imports: [
     ConfigModule,
     AuthModule,
+    NoticesModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -46,6 +50,7 @@ import { AuthModule } from '../auth/auth.module';
       CustomerServiceMessage,
       CapsuleAccessLog,
       Payment,
+      Notice,
     ]),
   ],
   controllers: [
@@ -53,6 +58,7 @@ import { AuthModule } from '../auth/auth.module';
     AdminDashboardController,
     AdminUsersController,
     AdminInquiriesController,
+    AdminNoticesController,
   ],
   providers: [
     AdminAuthService,

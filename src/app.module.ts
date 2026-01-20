@@ -11,6 +11,7 @@ import { MediaModule } from './media/media.module';
 import { MeModule } from './me/me.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AdminModule } from './admin/admin.module';
+import { NoticesModule } from './notices/notices.module';
 
 @Module({
   imports: [
@@ -35,6 +36,8 @@ import { AdminModule } from './admin/admin.module';
     OnboardingModule,
     // 관리자 모듈
     AdminModule,
+    // 공지사항 모듈
+    NoticesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
