@@ -7,6 +7,8 @@ import {
   Capsule,
   CapsuleParticipantSlot,
   CapsuleEntry,
+  CustomerService,
+  CustomerServiceMessage,
 } from '../entities';
 import { AuthModule } from '../auth/auth.module';
 import { MediaModule } from '../media/media.module';
@@ -20,6 +22,8 @@ import {
 } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { PushNotificationService } from '../common/services/push-notification.service';
+import { InquiriesController } from './inquiries.controller';
+import { InquiriesService } from './inquiries.service';
 
 /**
  * 마이페이지 모듈
@@ -34,6 +38,8 @@ import { PushNotificationService } from '../common/services/push-notification.se
       Capsule,
       CapsuleParticipantSlot,
       CapsuleEntry,
+      CustomerService,
+      CustomerServiceMessage,
     ]),
     AuthModule,
     MediaModule,
@@ -43,12 +49,14 @@ import { PushNotificationService } from '../common/services/push-notification.se
     FriendsController,
     NotificationsController,
     AdminNotificationsController,
+    InquiriesController,
   ],
   providers: [
     MeService,
     FriendsService,
     NotificationsService,
     PushNotificationService,
+    InquiriesService,
   ],
   exports: [
     MeService,

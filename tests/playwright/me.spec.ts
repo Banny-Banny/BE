@@ -74,19 +74,20 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 async function createAdminUser(
-  email = 'admin@example.com',
+  email?: string,
   password = 'admin-password-1234',
 ) {
   const id = crypto.randomUUID();
+  const resolvedEmail = email ?? `admin-${id}@example.com`;
   const passwordHash = await hashPassword(password);
   await client.query(
     `
     INSERT INTO admin_users (id, email, name, password_hash, role, is_active)
     VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', true)
     `,
-    [id, email.toLowerCase(), '관리자', passwordHash],
+    [id, resolvedEmail.toLowerCase(), '관리자', passwordHash],
   );
-  return { id, email: email.toLowerCase(), password };
+  return { id, email: resolvedEmail.toLowerCase(), password };
 }
 
 async function loginAdmin(email: string, password: string) {
@@ -228,6 +229,129 @@ async function createNotification(
 
 async function cleanupNotifications(userId: string) {
   await client.query('DELETE FROM notifications WHERE user_id = $1', [userId]);
+}
+
+async function createInquiry(params: {
+  userId: string;
+  title?: string;
+  content?: string;
+  status?: string;
+  isResolved?: boolean;
+  lastMessageAt?: Date;
+  lastMessagePreview?: string | null;
+  createdAt?: Date;
+}) {
+  const id = crypto.randomUUID();
+  const now = params.createdAt ?? new Date();
+  const lastMessageAt = params.lastMessageAt ?? now;
+  const title = params.title ?? '1:1 문의';
+  const content = params.content ?? '문의가 시작되었습니다.';
+  const status = params.status ?? 'PENDING';
+  const isResolved = params.isResolved ?? false;
+  const lastMessagePreview = params.lastMessagePreview ?? content.slice(0, 200);
+
+  await client.query(
+    `
+    INSERT INTO customer_services (
+      id,
+      user_id,
+      title,
+      content,
+      admin_reply,
+      is_resolved,
+      status,
+      last_message_at,
+      last_message_preview,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $9)
+    `,
+    [
+      id,
+      params.userId,
+      title,
+      content,
+      isResolved,
+      status,
+      lastMessageAt,
+      lastMessagePreview,
+      now,
+    ],
+  );
+
+  return { id, lastMessageAt };
+}
+
+async function createInquiryMessage(params: {
+  inquiryId: string;
+  senderType: 'USER' | 'ADMIN';
+  senderUserId?: string | null;
+  senderAdminId?: string | null;
+  content: string;
+  isReadByAdmin?: boolean;
+  isReadByUser?: boolean;
+  createdAt?: Date;
+}) {
+  const id = crypto.randomUUID();
+  const createdAt = params.createdAt ?? new Date();
+  const isReadByAdmin = params.isReadByAdmin ?? params.senderType === 'ADMIN';
+  const isReadByUser = params.isReadByUser ?? params.senderType === 'USER';
+
+  await client.query(
+    `
+    INSERT INTO customer_service_messages (
+      id,
+      customer_service_id,
+      sender_type,
+      sender_user_id,
+      sender_admin_id,
+      content,
+      is_read_by_admin,
+      is_read_by_user,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+    `,
+    [
+      id,
+      params.inquiryId,
+      params.senderType,
+      params.senderUserId ?? null,
+      params.senderAdminId ?? null,
+      params.content,
+      isReadByAdmin,
+      isReadByUser,
+      createdAt,
+    ],
+  );
+
+  await client.query(
+    `
+    UPDATE customer_services
+    SET last_message_at = $2, last_message_preview = $3, updated_at = $2
+    WHERE id = $1
+    `,
+    [params.inquiryId, createdAt, params.content.slice(0, 200)],
+  );
+
+  return { id, createdAt };
+}
+
+async function cleanupInquiries(userId: string) {
+  await client.query(
+    `
+    DELETE FROM customer_service_messages
+    WHERE customer_service_id IN (
+      SELECT id FROM customer_services WHERE user_id = $1
+    )
+    `,
+    [userId],
+  );
+  await client.query('DELETE FROM customer_services WHERE user_id = $1', [
+    userId,
+  ]);
 }
 
 // ============================================
@@ -1094,6 +1218,131 @@ test('POST /api/me/notifications/:notificationId/delete 403: 다른 사용자의
   await cleanupNotifications(user2.id);
   await cleanupUser(user1.id);
   await cleanupUser(user2.id);
+});
+
+// ============================================
+// 내 문의(채팅) 조회 테스트
+// ============================================
+
+test('GET /api/me/inquiries 200: 내 문의 목록 조회', async () => {
+  const user = await createUser('문의유저');
+  const otherUser = await createUser('다른유저');
+  const admin = await createAdminUser();
+
+  try {
+    const olderTime = new Date(Date.now() - 1000 * 60 * 10);
+    const newerTime = new Date(Date.now() - 1000 * 60 * 1);
+
+    const inquiryOld = await createInquiry({
+      userId: user.id,
+      lastMessageAt: olderTime,
+      lastMessagePreview: '이전 문의',
+    });
+    const inquiryNew = await createInquiry({
+      userId: user.id,
+      lastMessageAt: newerTime,
+      lastMessagePreview: '최신 문의',
+    });
+    await createInquiry({
+      userId: otherUser.id,
+      lastMessageAt: new Date(),
+    });
+
+    await createInquiryMessage({
+      inquiryId: inquiryOld.id,
+      senderType: 'ADMIN',
+      senderAdminId: admin.id,
+      content: '답변드립니다.',
+      isReadByUser: false,
+      createdAt: olderTime,
+    });
+    await createInquiryMessage({
+      inquiryId: inquiryNew.id,
+      senderType: 'ADMIN',
+      senderAdminId: admin.id,
+      content: '확인 부탁드립니다.',
+      isReadByUser: true,
+      createdAt: newerTime,
+    });
+
+    const res = await api.get('/api/me/inquiries?limit=20&offset=0', {
+      headers: { Authorization: `Bearer ${user.token}` },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.items.length).toBe(2);
+    expect(body.items[0].id).toBe(inquiryNew.id);
+    expect(body.items[1].id).toBe(inquiryOld.id);
+    expect(body.items[0].unreadCount).toBe(0);
+    expect(body.items[1].unreadCount).toBe(1);
+    expect(body.hasNext).toBe(false);
+  } finally {
+    await cleanupInquiries(user.id);
+    await cleanupInquiries(otherUser.id);
+    await cleanupAdminUser(admin.id);
+    await cleanupUser(user.id);
+    await cleanupUser(otherUser.id);
+  }
+});
+
+test('GET /api/me/inquiries/:id 200: 내 문의 상세 조회', async () => {
+  const user = await createUser('문의상세유저');
+  const admin = await createAdminUser();
+
+  try {
+    const inquiry = await createInquiry({ userId: user.id });
+    await createInquiryMessage({
+      inquiryId: inquiry.id,
+      senderType: 'USER',
+      senderUserId: user.id,
+      content: '문의 내용입니다.',
+    });
+    await createInquiryMessage({
+      inquiryId: inquiry.id,
+      senderType: 'ADMIN',
+      senderAdminId: admin.id,
+      content: '답변 내용입니다.',
+    });
+
+    const res = await api.get(
+      `/api/me/inquiries/${inquiry.id}?limit=1&offset=0`,
+      {
+        headers: { Authorization: `Bearer ${user.token}` },
+      },
+    );
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.inquiry.id).toBe(inquiry.id);
+    expect(body.messages.length).toBe(1);
+    expect(body.total).toBe(2);
+    expect(body.hasNext).toBe(true);
+  } finally {
+    await cleanupInquiries(user.id);
+    await cleanupAdminUser(admin.id);
+    await cleanupUser(user.id);
+  }
+});
+
+test('GET /api/me/inquiries/:id 404: 다른 사용자의 문의 접근', async () => {
+  const user = await createUser('문의유저1');
+  const otherUser = await createUser('문의유저2');
+
+  try {
+    const inquiry = await createInquiry({ userId: otherUser.id });
+
+    const res = await api.get(`/api/me/inquiries/${inquiry.id}`, {
+      headers: { Authorization: `Bearer ${user.token}` },
+    });
+
+    expect(res.status()).toBe(404);
+  } finally {
+    await cleanupInquiries(user.id);
+    await cleanupInquiries(otherUser.id);
+    await cleanupUser(user.id);
+    await cleanupUser(otherUser.id);
+  }
 });
 
 // ============================================
