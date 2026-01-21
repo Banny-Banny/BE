@@ -141,10 +141,6 @@ export class NotificationsController {
     description: '인증되지 않은 사용자',
   })
   @ApiResponse({
-    status: 403,
-    description: '알림을 읽음 처리할 권한이 없음',
-  })
-  @ApiResponse({
     status: 404,
     description: '알림을 찾을 수 없음',
   })
@@ -184,10 +180,6 @@ export class NotificationsController {
   @ApiResponse({
     status: 401,
     description: '인증되지 않은 사용자',
-  })
-  @ApiResponse({
-    status: 403,
-    description: '알림을 삭제할 권한이 없음',
   })
   @ApiResponse({
     status: 404,

@@ -1,7 +1,7 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -100,7 +100,8 @@ export class NotificationsService {
 
     // userId 권한 확인
     if (notification.userId !== userId) {
-      throw new ForbiddenException('이 알림을 읽음 처리할 권한이 없습니다.');
+      // 존재 여부 노출을 막기 위해 404로 통일
+      throw new NotFoundException('알림을 찾을 수 없습니다.');
     }
 
     // 이미 읽음 상태면 그대로 반환 (멱등성)
@@ -131,7 +132,8 @@ export class NotificationsService {
 
     // userId 권한 확인
     if (notification.userId !== userId) {
-      throw new ForbiddenException('이 알림을 삭제할 권한이 없습니다.');
+      // 존재 여부 노출을 막기 위해 404로 통일
+      throw new NotFoundException('알림을 찾을 수 없습니다.');
     }
 
     await this.notificationRepository.remove(notification);
@@ -148,7 +150,9 @@ export class NotificationsService {
     if (dto.targetType === NotificationTargetType.USER) {
       // 단일 사용자 대상
       if (!dto.userId) {
-        throw new Error('targetType이 USER일 때 userId는 필수입니다.');
+        throw new BadRequestException(
+          'targetType이 USER일 때 userId는 필수입니다.',
+        );
       }
 
       const user = await this.userRepository.findOne({

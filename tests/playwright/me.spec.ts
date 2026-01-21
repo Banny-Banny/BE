@@ -1104,7 +1104,7 @@ test('POST /api/me/notifications/:notificationId/read 404: 존재하지 않는 �
   await cleanupUser(user.id);
 });
 
-test('POST /api/me/notifications/:notificationId/read 403: 다른 사용자의 알림 읽음 처리 시도', async () => {
+test('POST /api/me/notifications/:notificationId/read 404: 다른 사용자의 알림 읽음 처리 시도', async () => {
   const user1 = await createUser('유저1');
   const user2 = await createUser('유저2');
   const notificationId = await createNotification(
@@ -1119,7 +1119,7 @@ test('POST /api/me/notifications/:notificationId/read 403: 다른 사용자의 �
     headers: { Authorization: `Bearer ${user1.token}` },
   });
 
-  expect(res.status()).toBe(403);
+  expect(res.status()).toBe(404);
 
   await cleanupNotifications(user2.id);
   await cleanupUser(user1.id);
@@ -1191,7 +1191,7 @@ test('POST /api/me/notifications/:notificationId/delete 404: 존재하지 않는
   await cleanupUser(user.id);
 });
 
-test('POST /api/me/notifications/:notificationId/delete 403: 다른 사용자의 알림 삭제 시도', async () => {
+test('POST /api/me/notifications/:notificationId/delete 404: 다른 사용자의 알림 삭제 시도', async () => {
   const user1 = await createUser('유저1');
   const user2 = await createUser('유저2');
   const notificationId = await createNotification(
@@ -1206,7 +1206,7 @@ test('POST /api/me/notifications/:notificationId/delete 403: 다른 사용자의
     headers: { Authorization: `Bearer ${user1.token}` },
   });
 
-  expect(res.status()).toBe(403);
+  expect(res.status()).toBe(404);
 
   // DB 확인 - 삭제되지 않았는지 확인
   const notification = await client.query(
