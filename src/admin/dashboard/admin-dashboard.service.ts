@@ -140,55 +140,69 @@ export class AdminDashboardService {
       throw new BadRequestException('INVALID_PERIOD');
     }
 
-    const end = this.endOfDay(new Date());
-    const start = this.startOfDay(new Date(end));
-    start.setDate(start.getDate() - 89);
+    try {
+      // UTC 기준으로 날짜 계산 (타임존 이슈 방지)
+      const now = new Date();
+      const end = this.endOfDay(now);
+      const start = this.startOfDay(new Date(end));
+      start.setDate(start.getDate() - 89);
 
-    const joinedRows = await this.userRepository
-      .createQueryBuilder('user')
-      .withDeleted()
-      .select('DATE(user.created_at)', 'date')
-      .addSelect('COUNT(*)', 'count')
-      .where('user.created_at BETWEEN :start AND :end', { start, end })
-      .groupBy('date')
-      .orderBy('date', 'ASC')
-      .getRawMany<{ date: string | Date; count: string }>();
+      // 두 쿼리를 병렬로 실행하여 성능 최적화
+      const [joinedRows, withdrawnRows] = await Promise.all([
+        this.userRepository
+          .createQueryBuilder('user')
+          .withDeleted()
+          .select('DATE(user.created_at)', 'date')
+          .addSelect('COUNT(*)', 'count')
+          .where('user.created_at BETWEEN :start AND :end', { start, end })
+          .groupBy('date')
+          .orderBy('date', 'ASC')
+          .getRawMany<{ date: string | Date; count: string }>(),
+        this.userRepository
+          .createQueryBuilder('user')
+          .withDeleted()
+          .select('DATE(user.deleted_at)', 'date')
+          .addSelect('COUNT(*)', 'count')
+          .where('user.deleted_at IS NOT NULL')
+          .andWhere('user.deleted_at BETWEEN :start AND :end', { start, end })
+          .groupBy('date')
+          .orderBy('date', 'ASC')
+          .getRawMany<{ date: string | Date; count: string }>(),
+      ]);
 
-    const withdrawnRows = await this.userRepository
-      .createQueryBuilder('user')
-      .withDeleted()
-      .select('DATE(user.deleted_at)', 'date')
-      .addSelect('COUNT(*)', 'count')
-      .where('user.deleted_at IS NOT NULL')
-      .andWhere('user.deleted_at BETWEEN :start AND :end', { start, end })
-      .groupBy('date')
-      .orderBy('date', 'ASC')
-      .getRawMany<{ date: string | Date; count: string }>();
+      const joinedMap = new Map(
+        joinedRows.map((row) => [
+          this.normalizeDateOnly(row.date),
+          Number(row.count),
+        ]),
+      );
+      const withdrawnMap = new Map(
+        withdrawnRows.map((row) => [
+          this.normalizeDateOnly(row.date),
+          Number(row.count),
+        ]),
+      );
 
-    const joinedMap = new Map(
-      joinedRows.map((row) => [
-        this.normalizeDateOnly(row.date),
-        Number(row.count),
-      ]),
-    );
-    const withdrawnMap = new Map(
-      withdrawnRows.map((row) => [
-        this.normalizeDateOnly(row.date),
-        Number(row.count),
-      ]),
-    );
+      const buckets = this.buildBuckets('day', start, end);
+      const items = buckets.map((date) => ({
+        date,
+        joined: joinedMap.get(date) ?? 0,
+        withdrawn: withdrawnMap.get(date) ?? 0,
+      }));
 
-    const buckets = this.buildBuckets('day', start, end);
-    const items = buckets.map((date) => ({
-      date,
-      joined: joinedMap.get(date) ?? 0,
-      withdrawn: withdrawnMap.get(date) ?? 0,
-    }));
-
-    return {
-      success: true,
-      data: items,
-    };
+      return {
+        success: true,
+        data: items,
+      };
+    } catch (error) {
+      // 데이터베이스 쿼리 에러 처리
+      if (error instanceof Error) {
+        throw new BadRequestException(
+          `Failed to fetch user trends: ${error.message}`,
+        );
+      }
+      throw error;
+    }
   }
 
   async getOrders(query: AdminOrderListQueryDto) {
