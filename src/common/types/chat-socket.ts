@@ -2,6 +2,7 @@ export interface ChatSocketData {
   adminId?: string;
   userId?: string;
   roomId?: string;
+  authTimeout?: ReturnType<typeof setTimeout>;
 }
 
 export interface ChatHandshake {

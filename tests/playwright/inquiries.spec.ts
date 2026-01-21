@@ -196,6 +196,24 @@ async function connectSocket(namespace: string, token: string) {
   return socket;
 }
 
+async function connectSocketWithoutToken(namespace: string) {
+  const socket: Socket = io(`${API_BASE_URL}${namespace}`, {
+    transports: ['websocket'],
+  });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('socket timeout')), 5000);
+    socket.on('connect', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.on('connect_error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+  return socket;
+}
+
 test('GET /api/admin/inquiries 200: 상태 필터 + unreadCount', async () => {
   const admin = await createAdminUser(
     'inquiry_list@example.com',
@@ -529,4 +547,70 @@ test('WebSocket: admin -> user 메시지 실시간 수신', async () => {
   await cleanupInquiry(inquiryId);
   await cleanupUser(user.id);
   await cleanupAdminUser(admin.id);
+});
+
+test('WebSocket: 토큰 없이 연결 후 authenticate로 재인증', async () => {
+  const user = await createUser('재인증유저');
+  const inquiryId = await createInquiry(user.id, 'PENDING');
+
+  const socket = await connectSocketWithoutToken('/user-chat');
+
+  const authAck = await new Promise<{ success?: boolean }>(
+    (resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('auth timeout')), 5000);
+      socket.emit(
+        'authenticate',
+        { token: user.token },
+        (ack: { success?: boolean }) => {
+          clearTimeout(timer);
+          resolve(ack);
+        },
+      );
+    },
+  );
+  expect(authAck?.success).toBe(true);
+
+  const joinAck = await new Promise<{ success?: boolean; roomId?: string }>(
+    (resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('join timeout')), 5000);
+      socket.emit(
+        'join_room',
+        { roomId: inquiryId },
+        (ack: { success?: boolean; roomId?: string }) => {
+          clearTimeout(timer);
+          resolve(ack);
+        },
+      );
+    },
+  );
+  expect(joinAck?.success).toBe(true);
+  expect(joinAck?.roomId).toBe(inquiryId);
+
+  const sendAck = await new Promise<{ success?: boolean; messageId?: string }>(
+    (resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('send timeout')), 5000);
+      const onException = (payload: { message?: string }) => {
+        clearTimeout(timer);
+        socket.off('exception', onException);
+        reject(new Error(payload?.message ?? 'send failed'));
+      };
+      socket.once('exception', onException);
+      socket.emit(
+        'send_message',
+        { roomId: inquiryId, content: '재인증 테스트' },
+        (ack: { success?: boolean; messageId?: string }) => {
+          clearTimeout(timer);
+          socket.off('exception', onException);
+          resolve(ack);
+        },
+      );
+    },
+  );
+  expect(sendAck?.success).toBe(true);
+  expect(sendAck?.messageId).toBeTruthy();
+
+  socket.disconnect();
+
+  await cleanupInquiry(inquiryId);
+  await cleanupUser(user.id);
 });

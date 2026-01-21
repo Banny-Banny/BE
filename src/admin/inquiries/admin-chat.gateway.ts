@@ -39,23 +39,52 @@ export class AdminChatGateway {
 
   async handleConnection(client: ChatSocket) {
     const token = this.extractToken(client);
-    if (!token) {
+    if (token) {
+      const admin = await this.adminAuthService.validateAccessToken(token);
+      if (admin) {
+        client.data.adminId = admin.id;
+        this.logger.log(`Admin connected: ${admin.email}`);
+        return;
+      }
+    }
+
+    // 토큰 누락/만료 시 즉시 끊지 않고, 재인증 시간을 준다.
+    client.data.authTimeout = setTimeout(() => {
       client.disconnect(true);
-      return;
+    }, 5000);
+  }
+
+  handleDisconnect(client: ChatSocket) {
+    if (client.data.authTimeout) {
+      clearTimeout(client.data.authTimeout);
+      client.data.authTimeout = undefined;
+    }
+    this.logger.log(`Admin disconnected: ${client.id}`);
+  }
+
+  @SubscribeMessage('authenticate')
+  async authenticate(
+    @ConnectedSocket() client: ChatSocket,
+    @MessageBody() payload: { token?: string },
+  ) {
+    const token = payload?.token?.trim();
+    if (!token) {
+      throw new WsException('토큰이 필요합니다.');
     }
 
     const admin = await this.adminAuthService.validateAccessToken(token);
     if (!admin) {
-      client.disconnect(true);
-      return;
+      throw new WsException('관리자 인증이 필요합니다.');
+    }
+
+    if (client.data.authTimeout) {
+      clearTimeout(client.data.authTimeout);
+      client.data.authTimeout = undefined;
     }
 
     client.data.adminId = admin.id;
-    this.logger.log(`Admin connected: ${admin.email}`);
-  }
-
-  handleDisconnect(client: ChatSocket) {
-    this.logger.log(`Admin disconnected: ${client.id}`);
+    this.logger.log(`Admin authenticated: ${admin.email}`);
+    return { success: true };
   }
 
   @SubscribeMessage('join_room')

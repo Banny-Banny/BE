@@ -24,6 +24,7 @@
 
 | 이벤트 | 방향 | 설명 |
 |---|---|---|
+| `authenticate` | client → server | 재인증(토큰 갱신) |
 | `join_room` | client → server | 방 입장 |
 | `leave_room` | client → server | 방 나가기 |
 | `send_message` | client → server | 메시지 전송 |
@@ -45,6 +46,36 @@
 io(`${API_BASE_URL}/user-chat`, {
   auth: { token: userAccessToken },
   transports: ['websocket'],
+});
+```
+
+### 2-1) 토큰 누락/만료 시 재인증
+
+- 소켓 연결 시 토큰이 없거나 만료되면 5초 유예 후 연결이 종료됩니다.
+- 유예 시간 내에 `authenticate` 이벤트로 토큰을 다시 보내면 정상 인증됩니다.
+
+```
+socket.emit('authenticate', { token: userAccessToken }, (res) => {
+  // res: { success: true }
+});
+```
+
+### 2-2) 재로그인 직후 권장 흐름 (유저)
+
+```
+// 1) 소켓 연결 (토큰 없거나 갱신 직후)
+const socket = io(`${API_BASE_URL}/user-chat`, { transports: ['websocket'] });
+
+// 2) 토큰 재인증 (5초 유예 내)
+socket.emit('authenticate', { token: userAccessToken }, (res) => {
+  if (!res?.success) return;
+
+  // 3) 방 입장
+  socket.emit('join_room', {}, (joinRes) => {
+    const { roomId } = joinRes;
+    // 4) 메시지 전송
+    socket.emit('send_message', { roomId, content: '문의 내용' });
+  });
 });
 ```
 
@@ -95,6 +126,35 @@ io(`${API_BASE_URL}/admin-chat`, {
 });
 ```
 
+### 2-1) 토큰 누락/만료 시 재인증
+
+- 소켓 연결 시 토큰이 없거나 만료되면 5초 유예 후 연결이 종료됩니다.
+- 유예 시간 내에 `authenticate` 이벤트로 토큰을 다시 보내면 정상 인증됩니다.
+
+```
+adminSocket.emit('authenticate', { token: adminAccessToken }, (res) => {
+  // res: { success: true }
+});
+```
+
+### 2-2) 재로그인 직후 권장 흐름 (어드민)
+
+```
+// 1) 소켓 연결 (토큰 없거나 갱신 직후)
+const adminSocket = io(`${API_BASE_URL}/admin-chat`, { transports: ['websocket'] });
+
+// 2) 토큰 재인증 (5초 유예 내)
+adminSocket.emit('authenticate', { token: adminAccessToken }, (res) => {
+  if (!res?.success) return;
+
+  // 3) 방 입장 (roomId 필수)
+  adminSocket.emit('join_room', { roomId }, () => {
+    // 4) 메시지 전송
+    adminSocket.emit('send_message', { roomId, content: '답변 내용' });
+  });
+});
+```
+
 ### 3) 방 입장 (roomId 필수)
 
 ```
@@ -123,6 +183,12 @@ adminSocket.on('read_alert', (payload) => {
 ```
 
 ## 페이로드 요약
+
+### authenticate (client → server)
+
+```json
+{ "token": "accessToken" }
+```
 
 ### join_room (client → server)
 
