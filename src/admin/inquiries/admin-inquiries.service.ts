@@ -34,7 +34,7 @@ export class AdminInquiriesService {
       .leftJoinAndSelect('inquiry.user', 'user')
       .where('inquiry.deleted_at IS NULL');
 
-    if (query.status) {
+    if (query.status && query.status !== 'ALL') {
       qb.andWhere('inquiry.status = :status', { status: query.status });
     }
 

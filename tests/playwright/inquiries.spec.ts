@@ -245,6 +245,45 @@ test('GET /api/admin/inquiries 200: 상태 필터 + unreadCount', async () => {
   await cleanupAdminUser(admin.id);
 });
 
+test('GET /api/admin/inquiries 200: status=ALL 이면 필터 미적용', async () => {
+  const admin = await createAdminUser(
+    'inquiry_list_all@example.com',
+    'password1234',
+  );
+  const login = await loginAdmin(admin.email, 'password1234');
+  expect(login.status).toBe(200);
+
+  const user = await createUser('문의유저2');
+  const inquiryPending = await createInquiry(
+    user.id,
+    'PENDING',
+    new Date(),
+    '미답변',
+  );
+  const inquiryDone = await createInquiry(
+    user.id,
+    'COMPLETED',
+    new Date(),
+    '답변완료',
+  );
+
+  const res = await api.get('/api/admin/inquiries', {
+    headers: { Authorization: `Bearer ${login.accessToken}` },
+    params: { status: 'ALL', limit: 10, offset: 0 },
+  });
+
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  const ids = body.data.items.map((row: { id: string }) => row.id);
+  expect(ids).toContain(inquiryPending);
+  expect(ids).toContain(inquiryDone);
+
+  await cleanupInquiry(inquiryPending);
+  await cleanupInquiry(inquiryDone);
+  await cleanupUser(user.id);
+  await cleanupAdminUser(admin.id);
+});
+
 test('GET /api/admin/inquiries/:id 200: 페이지네이션', async () => {
   const admin = await createAdminUser(
     'inquiry_detail@example.com',

@@ -1,16 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsOptional, Min, Max } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { InquiryStatus } from '../../../common/enums';
 
 export class AdminInquiryListQueryDto {
   @ApiPropertyOptional({
-    enum: InquiryStatus,
+    enum: [...Object.values(InquiryStatus), 'ALL'],
     description: '문의 상태 필터',
+    default: 'ALL',
   })
   @IsOptional()
-  @IsEnum(InquiryStatus)
-  status?: InquiryStatus;
+  @IsIn([...Object.values(InquiryStatus), 'ALL'])
+  status?: InquiryStatus | 'ALL' = 'ALL';
 
   @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
   @IsOptional()
