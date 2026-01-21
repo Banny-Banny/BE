@@ -4,7 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { User, Notification } from '../entities';
 import {
   NotificationItemDto,
@@ -28,6 +28,7 @@ export class NotificationsService {
     private readonly notificationRepository: Repository<Notification>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -169,38 +170,31 @@ export class NotificationsService {
 
       return new SendNotificationResponseDto('알림이 발송되었습니다.', 1);
     } else {
-      // 전체 사용자 대상
-      const activeUsers = await this.userRepository.find({
-        where: { isActive: true },
-        select: ['id'],
-      });
+      // 전체 사용자 대상 (단일 SQL로 일괄 삽입하여 FK 경합 방지)
+      const rows = await this.dataSource.query<Array<{ id: string }>>(
+        `
+        INSERT INTO notifications (user_id, title, content, type)
+        SELECT id, $1, $2, $3
+        FROM users
+        WHERE is_active = true
+          AND deleted_at IS NULL
+        FOR KEY SHARE
+        RETURNING id
+        `,
+        [dto.title, dto.content, dto.type],
+      );
 
-      if (activeUsers.length === 0) {
+      const count = Array.isArray(rows) ? rows.length : 0;
+      if (count === 0) {
         return new SendNotificationResponseDto(
           '발송할 대상 사용자가 없습니다.',
           0,
         );
       }
 
-      // Bulk insert (batch to avoid parameter limit)
-      const notifications = activeUsers
-        .map((user) => user.id)
-        .filter(Boolean)
-        .map((userId) => ({
-          userId,
-          title: dto.title,
-          content: dto.content,
-          type: dto.type,
-        }));
-      const chunkSize = 500;
-      for (let i = 0; i < notifications.length; i += chunkSize) {
-        const chunk = notifications.slice(i, i + chunkSize);
-        await this.notificationRepository.save(chunk);
-      }
-
       return new SendNotificationResponseDto(
-        `알림이 ${activeUsers.length}명에게 발송되었습니다.`,
-        activeUsers.length,
+        `알림이 ${count}명에게 발송되었습니다.`,
+        count,
       );
     }
   }

@@ -149,14 +149,19 @@ async function cleanupOrdersAndPayments() {
     WHERE id IN (
       SELECT tc.capsule_id
       FROM time_capsules tc
-      WHERE tc.order_id IN (SELECT id FROM orders)
+      JOIN orders o ON o.id = tc.order_id
+      WHERE o.product_id = $1
     )
     `,
+    [TIME_CAPSULE_PRODUCT_ID],
   );
   await client.query(
-    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders)',
+    'DELETE FROM payments WHERE order_id IN (SELECT id FROM orders WHERE product_id = $1)',
+    [TIME_CAPSULE_PRODUCT_ID],
   );
-  await client.query('DELETE FROM orders');
+  await client.query('DELETE FROM orders WHERE product_id = $1', [
+    TIME_CAPSULE_PRODUCT_ID,
+  ]);
 }
 
 async function createOrder(token: string) {
