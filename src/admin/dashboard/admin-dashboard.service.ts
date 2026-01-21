@@ -226,6 +226,30 @@ export class AdminDashboardService {
       qb.andWhere('orders.userId = :userId', { userId: query.userId });
     }
 
+    if (query.userSearch) {
+      // userSearch로 닉네임 또는 이메일로 User 검색
+      const user = await this.userRepository.findOne({
+        where: [{ nickname: query.userSearch }, { email: query.userSearch }],
+      });
+
+      if (!user) {
+        // 사용자를 찾지 못한 경우 빈 결과 반환
+        return {
+          success: true,
+          data: {
+            items: [],
+            total: 0,
+            limit: query.limit,
+            offset: query.offset,
+          },
+        };
+      }
+
+      qb.andWhere('orders.userId = :searchedUserId', {
+        searchedUserId: user.id,
+      });
+    }
+
     if (query.startDate) {
       const start = new Date(query.startDate);
       start.setHours(0, 0, 0, 0);

@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
@@ -30,10 +31,18 @@ export class AdminOrderListQueryDto {
   @IsIn([...Object.values(PaymentStatus), 'ALL'])
   paymentStatus?: PaymentStatus | 'ALL' = 'ALL';
 
-  @ApiPropertyOptional({ description: '유저 ID' })
+  @ApiPropertyOptional({ description: '유저 ID (UUID 형식)' })
+  @IsOptional()
+  @IsUUID('4')
+  userId?: string;
+
+  @ApiPropertyOptional({
+    description: '유저 검색 (닉네임 또는 이메일)',
+    example: '초롱 또는 user@example.com',
+  })
   @IsOptional()
   @IsString()
-  userId?: string;
+  userSearch?: string;
 
   @ApiPropertyOptional({ example: '2026-01-01' })
   @IsOptional()
