@@ -6,15 +6,18 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Notice } from '../entities';
+import { MediaService } from '../media/media.service';
 import { CreateNoticeDto } from './dto/create-notice.dto';
 import { NoticeListQueryDto } from './dto/notice-list-query.dto';
 import { UpdateNoticeDto } from './dto/update-notice.dto';
+import { MulterFile } from '../media/types/multer-file.interface';
 
 @Injectable()
 export class NoticesService {
   constructor(
     @InjectRepository(Notice)
     private readonly noticeRepository: Repository<Notice>,
+    private readonly mediaService: MediaService,
   ) {}
 
   async listNotices(query: NoticeListQueryDto) {
@@ -23,9 +26,12 @@ export class NoticesService {
     qb.where('notice.is_visible = true');
 
     if (query.search) {
-      qb.andWhere('(notice.title ILIKE :search OR notice.content ILIKE :search)', {
-        search: `%${query.search}%`,
-      });
+      qb.andWhere(
+        '(notice.title ILIKE :search OR notice.content ILIKE :search)',
+        {
+          search: `%${query.search}%`,
+        },
+      );
     }
 
     const [items, total] = await qb
@@ -43,6 +49,7 @@ export class NoticesService {
           title: notice.title,
           imageUrl: notice.imageUrl,
           isPinned: notice.isPinned,
+          isVisible: notice.isVisible,
           createdAt: notice.createdAt,
         })),
         total,
@@ -69,17 +76,28 @@ export class NoticesService {
         content: notice.content,
         imageUrl: notice.imageUrl,
         isPinned: notice.isPinned,
+        isVisible: notice.isVisible,
         createdAt: notice.createdAt,
         updatedAt: notice.updatedAt,
       },
     };
   }
 
-  async createNotice(dto: CreateNoticeDto) {
+  async createNotice(adminId: string, dto: CreateNoticeDto, file?: MulterFile) {
+    let imageUrl = dto.imageUrl ?? null;
+
+    if (file) {
+      const uploaded = await this.mediaService.uploadPublicImageFile(
+        adminId,
+        file,
+      );
+      imageUrl = uploaded.url;
+    }
+
     const notice = this.noticeRepository.create({
       title: dto.title,
       content: dto.content,
-      imageUrl: dto.imageUrl ?? null,
+      imageUrl,
       isPinned: dto.isPinned ?? false,
       isVisible: dto.isVisible ?? true,
     });

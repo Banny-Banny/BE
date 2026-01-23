@@ -121,14 +121,20 @@ test('POST /api/admin/notices 201: 공지사항 작성', async () => {
   const admin = await createAdminUser('notice-admin@test.com', 'test1234');
   const login = await loginAdmin(admin.email, 'test1234');
 
+  const imageBuffer = Buffer.from('fake-notice-image');
+
   const res = await api.post('/api/admin/notices', {
     headers: { Authorization: `Bearer ${login.accessToken}` },
-    data: {
+    multipart: {
       title: '공지 제목',
       content: '공지 본문',
-      imageUrl: 'https://example.com/notice.png',
-      isPinned: true,
-      isVisible: true,
+      isPinned: 'true',
+      isVisible: 'true',
+      image: {
+        name: 'notice.png',
+        mimeType: 'image/png',
+        buffer: imageBuffer,
+      },
     },
   });
 
@@ -137,6 +143,8 @@ test('POST /api/admin/notices 201: 공지사항 작성', async () => {
   expect(body.success).toBe(true);
   expect(body.data.title).toBe('공지 제목');
   expect(body.data.isPinned).toBe(true);
+  expect(body.data.imageUrl).toBeDefined();
+  expect(body.data.imageUrl).toContain('/media/');
 
   const noticeId = body.data.id as string;
   const db = await client.query('SELECT * FROM notices WHERE id = $1', [
@@ -253,7 +261,7 @@ test('GET /api/notices 200: 공지사항 리스트(상단 고정 정렬)', async
   const res = await api.get('/api/notices?limit=10&offset=0');
   expect(res.status()).toBe(200);
   const body = (await res.json()) as {
-    data: { items: { title: string }[] };
+    data: { items: { title: string; isVisible: boolean }[] };
   };
   expect(body.data.items.length).toBeGreaterThanOrEqual(3);
 
@@ -267,6 +275,9 @@ test('GET /api/notices 200: 공지사항 리스트(상단 고정 정렬)', async
   expect(normalNewIndex).toBeGreaterThan(-1);
   expect(pinnedNewIndex).toBeLessThan(pinnedOldIndex);
   expect(pinnedOldIndex).toBeLessThan(normalNewIndex);
+  body.data.items.forEach((item) => {
+    expect(item.isVisible).toBe(true);
+  });
 
   await cleanupNotices(createdIds);
 });
@@ -287,6 +298,7 @@ test('GET /api/notices/:id 200/404: 상세 조회 및 비노출 차단', async (
   expect(okRes.status()).toBe(200);
   const okBody = await okRes.json();
   expect(okBody.data.title).toBe('상세 공개');
+  expect(okBody.data.isVisible).toBe(true);
 
   const notFoundRes = await api.get(`/api/notices/${hiddenId}`);
   expect(notFoundRes.status()).toBe(404);

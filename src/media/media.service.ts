@@ -136,6 +136,42 @@ export class MediaService {
     return key;
   }
 
+  private buildPublicUrl(objectKey: string): string {
+    const region = this.configService.get<string>(
+      'AWS_REGION',
+      'ap-northeast-2',
+    );
+    return `https://${this.bucket}.s3.${region}.amazonaws.com/${objectKey}`;
+  }
+
+  /**
+   * 관리자 등 비사용자 컨텍스트에서 이미지 파일을 S3에 업로드
+   * Media 엔티티는 생성하지 않습니다.
+   */
+  async uploadPublicImageFile(ownerId: string, file: MulterFile) {
+    this.validateMulterFile(file, MediaType.IMAGE);
+
+    const key = this.buildObjectKey(ownerId, MediaType.IMAGE, file.originalname);
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      ...(this.kmsKeyId
+        ? { ServerSideEncryption: 'aws:kms', SSEKMSKeyId: this.kmsKeyId }
+        : {}),
+    });
+
+    await this.s3.send(command);
+
+    return {
+      object_key: key,
+      url: this.buildPublicUrl(key),
+      content_type: file.mimetype,
+      size: file.size,
+    };
+  }
+
   async presign(user: User, dto: PresignMediaDto) {
     this.validateFile(dto);
     const key = this.buildObjectKey(user.id, dto.type, dto.filename);
