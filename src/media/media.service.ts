@@ -166,10 +166,20 @@ export class MediaService {
 
     return {
       object_key: key,
-      url: this.buildPublicUrl(key),
       content_type: file.mimetype,
       size: file.size,
     };
+  }
+
+  async getSignedUrlByObjectKey(objectKey: string): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: objectKey,
+    });
+
+    return await getSignedUrl(this.s3, command, {
+      expiresIn: this.signedUrlTtl,
+    });
   }
 
   async presign(user: User, dto: PresignMediaDto) {

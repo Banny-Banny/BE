@@ -41,17 +41,21 @@ export class NoticesService {
       .take(query.limit)
       .getManyAndCount();
 
+    const itemsWithSigned = await Promise.all(
+      items.map(async (notice) => ({
+        id: notice.id,
+        title: notice.title,
+        imageUrl: await this.resolveNoticeImageUrl(notice.imageUrl),
+        isPinned: notice.isPinned,
+        isVisible: notice.isVisible,
+        createdAt: notice.createdAt,
+      })),
+    );
+
     return {
       success: true,
       data: {
-        items: items.map((notice) => ({
-          id: notice.id,
-          title: notice.title,
-          imageUrl: notice.imageUrl,
-          isPinned: notice.isPinned,
-          isVisible: notice.isVisible,
-          createdAt: notice.createdAt,
-        })),
+        items: itemsWithSigned,
         total,
         limit: query.limit,
         offset: query.offset,
@@ -74,7 +78,7 @@ export class NoticesService {
         id: notice.id,
         title: notice.title,
         content: notice.content,
-        imageUrl: notice.imageUrl,
+        imageUrl: await this.resolveNoticeImageUrl(notice.imageUrl),
         isPinned: notice.isPinned,
         isVisible: notice.isVisible,
         createdAt: notice.createdAt,
@@ -91,7 +95,7 @@ export class NoticesService {
         adminId,
         file,
       );
-      imageUrl = uploaded.url;
+      imageUrl = uploaded.object_key;
     }
 
     const notice = this.noticeRepository.create({
@@ -110,7 +114,7 @@ export class NoticesService {
         id: saved.id,
         title: saved.title,
         content: saved.content,
-        imageUrl: saved.imageUrl,
+        imageUrl: await this.resolveNoticeImageUrl(saved.imageUrl),
         isPinned: saved.isPinned,
         isVisible: saved.isVisible,
         createdAt: saved.createdAt,
@@ -144,7 +148,7 @@ export class NoticesService {
         adminId,
         file,
       );
-      updates.imageUrl = uploaded.url;
+      updates.imageUrl = uploaded.object_key;
     }
 
     if (!Object.keys(updates).length) {
@@ -160,12 +164,31 @@ export class NoticesService {
         id: saved.id,
         title: saved.title,
         content: saved.content,
-        imageUrl: saved.imageUrl,
+        imageUrl: await this.resolveNoticeImageUrl(saved.imageUrl),
         isPinned: saved.isPinned,
         isVisible: saved.isVisible,
         updatedAt: saved.updatedAt,
       },
     };
+  }
+
+  private async resolveNoticeImageUrl(
+    imageUrl: string | null,
+  ): Promise<string | null> {
+    if (!imageUrl) return null;
+
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      const marker = 'amazonaws.com/';
+      const index = imageUrl.indexOf(marker);
+      if (index === -1) {
+        return imageUrl;
+      }
+      const objectKey = imageUrl.slice(index + marker.length);
+      if (!objectKey) return imageUrl;
+      return await this.mediaService.getSignedUrlByObjectKey(objectKey);
+    }
+
+    return await this.mediaService.getSignedUrlByObjectKey(imageUrl);
   }
 
   async deleteNotice(noticeId: string) {
