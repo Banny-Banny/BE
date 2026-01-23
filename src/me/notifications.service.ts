@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { User, Notification } from '../entities';
+import { NotificationType } from '../common/enums';
 import {
   NotificationItemDto,
   PaginatedNotificationResponseDto,
@@ -16,6 +17,10 @@ import {
   SendNotificationResponseDto,
   NotificationTargetType,
 } from './dto/send-notification.dto';
+import {
+  NotificationSendHistoryItemDto,
+  PaginatedNotificationSendHistoryResponseDto,
+} from './dto/notification-send-history.dto';
 
 /**
  * 알림 관리 서비스
@@ -201,5 +206,67 @@ export class NotificationsService {
         count,
       );
     }
+  }
+
+  /**
+   * 관리자 알림 발송 내역 조회
+   */
+  async getNotificationSendHistory(
+    limit: number = 20,
+    offset: number = 0,
+  ): Promise<PaginatedNotificationSendHistoryResponseDto> {
+    const targetTypes = [NotificationType.SYSTEM, NotificationType.MARKETING];
+
+    const baseQb = this.notificationRepository
+      .createQueryBuilder('notification')
+      .where('notification.type IN (:...types)', { types: targetTypes });
+
+    const groupBy = (qb: typeof baseQb) =>
+      qb
+        .groupBy('notification.title')
+        .addGroupBy('notification.content')
+        .addGroupBy('notification.type')
+        .addGroupBy("date_trunc('second', notification.created_at)");
+
+    const totalRows = await groupBy(baseQb.clone()).select('1').getRawMany();
+    const total = totalRows.length;
+
+    const rows = await groupBy(baseQb.clone())
+      .select('MIN(notification.id::text)', 'messageId')
+      .addSelect('notification.title', 'title')
+      .addSelect('notification.content', 'content')
+      .addSelect('notification.type', 'type')
+      .addSelect("date_trunc('second', notification.created_at)", 'sentAt')
+      .addSelect('COUNT(*)', 'targetCount')
+      .orderBy("date_trunc('second', notification.created_at)", 'DESC')
+      .offset(offset)
+      .limit(limit)
+      .getRawMany<{
+        messageId: string;
+        title: string;
+        content: string;
+        type: NotificationType;
+        sentAt: Date;
+        targetCount: string;
+      }>();
+
+    const items = rows.map(
+      (row) =>
+        new NotificationSendHistoryItemDto({
+          messageId: row.messageId,
+          title: row.title,
+          content: row.content,
+          type: row.type,
+          sentAt: new Date(row.sentAt),
+          targetCount: Number(row.targetCount),
+        }),
+    );
+
+    return new PaginatedNotificationSendHistoryResponseDto(
+      items,
+      total,
+      limit,
+      offset,
+    );
   }
 }

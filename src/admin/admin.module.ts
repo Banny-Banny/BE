@@ -32,6 +32,8 @@ import { CapsulesModule } from '../capsules/capsules.module';
 import { AdminNoticesController } from './notices/admin-notices.controller';
 import { AdminProductsController } from './products/admin-products.controller';
 import { AdminProductsService } from './products/admin-products.service';
+import { AdminAdminsController } from './admins/admin-admins.controller';
+import { AdminAdminsService } from './admins/admin-admins.service';
 
 @Module({
   imports: [
@@ -65,6 +67,7 @@ import { AdminProductsService } from './products/admin-products.service';
   ],
   controllers: [
     AdminAuthController,
+    AdminAdminsController,
     AdminDashboardController,
     AdminUsersController,
     AdminInquiriesController,
@@ -74,6 +77,7 @@ import { AdminProductsService } from './products/admin-products.service';
   providers: [
     AdminAuthService,
     AdminJwtStrategy,
+    AdminAdminsService,
     AdminDashboardService,
     AdminUsersService,
     AdminInquiriesService,

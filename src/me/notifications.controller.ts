@@ -31,6 +31,7 @@ import {
   SendNotificationDto,
   SendNotificationResponseDto,
 } from './dto/send-notification.dto';
+import { PaginatedNotificationSendHistoryResponseDto } from './dto/notification-send-history.dto';
 
 /**
  * 알림 관리 컨트롤러
@@ -241,5 +242,28 @@ export class AdminNotificationsController {
     @Body() dto: SendNotificationDto,
   ): Promise<SendNotificationResponseDto> {
     return this.notificationsService.sendNotification(dto);
+  }
+
+  /**
+   * 알림 발송 내역 조회 (관리자 전용)
+   * GET /api/admin/notifications/history
+   */
+  @Get('history')
+  @ApiOperation({
+    summary: '알림 발송 내역 조회 (관리자 전용)',
+    description: '관리자가 발송한 알림 내역을 최신순으로 조회합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '알림 발송 내역 조회 성공',
+    type: PaginatedNotificationSendHistoryResponseDto,
+  })
+  async getNotificationHistory(
+    @Query() query: PaginationQueryDto,
+  ): Promise<PaginatedNotificationSendHistoryResponseDto> {
+    return this.notificationsService.getNotificationSendHistory(
+      query.limit,
+      query.offset,
+    );
   }
 }

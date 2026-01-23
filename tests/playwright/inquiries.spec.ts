@@ -38,8 +38,12 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await client.end();
-  await api.dispose();
+  if (client) {
+    await client.end();
+  }
+  if (api) {
+    await api.dispose();
+  }
 });
 
 async function hashPassword(password: string): Promise<string> {
@@ -106,6 +110,13 @@ async function createUser(nickname = 'test-user', email: string | null = null) {
 
 async function cleanupUser(id: string) {
   await client.query('DELETE FROM users WHERE id = $1', [id]);
+}
+
+async function cleanupNotificationsByTitle(userId: string, title: string) {
+  await client.query(
+    'DELETE FROM notifications WHERE user_id = $1 AND title = $2',
+    [userId, title],
+  );
 }
 
 async function createInquiry(
@@ -259,6 +270,88 @@ test('GET /api/admin/inquiries 200: 상태 필터 + unreadCount', async () => {
 
   await cleanupInquiry(inquiryPending);
   await cleanupInquiry(inquiryDone);
+  await cleanupUser(user.id);
+  await cleanupAdminUser(admin.id);
+});
+
+test('GET /api/admin 200: 관리자 목록 조회', async () => {
+  const adminA = await createAdminUser(
+    'admin_list_a@example.com',
+    'password1234',
+  );
+  const adminB = await createAdminUser(
+    'admin_list_b@example.com',
+    'password1234',
+  );
+  const login = await loginAdmin(adminA.email, 'password1234');
+  expect(login.status).toBe(200);
+
+  const res = await api.get('/api/admin', {
+    headers: { Authorization: `Bearer ${login.accessToken}` },
+    params: { limit: 10, offset: 0 },
+  });
+
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect(body.success).toBe(true);
+  const ids = body.data.items.map((row: { adminId: string }) => row.adminId);
+  expect(ids).toContain(adminA.id);
+  expect(ids).toContain(adminB.id);
+
+  const aliasRes = await api.get('/api/admin/admins', {
+    headers: { Authorization: `Bearer ${login.accessToken}` },
+    params: { limit: 10, offset: 0 },
+  });
+  expect(aliasRes.status()).toBe(200);
+  const aliasBody = await aliasRes.json();
+  const aliasIds = aliasBody.data.items.map(
+    (row: { adminId: string }) => row.adminId,
+  );
+  expect(aliasIds).toContain(adminA.id);
+  expect(aliasIds).toContain(adminB.id);
+
+  await cleanupAdminUser(adminA.id);
+  await cleanupAdminUser(adminB.id);
+});
+
+test('GET /api/admin/notifications/history 200: 발송 내역 조회', async () => {
+  const admin = await createAdminUser(
+    'notification_history@example.com',
+    'password1234',
+  );
+  const login = await loginAdmin(admin.email, 'password1234');
+  expect(login.status).toBe(200);
+
+  const user = await createUser('알림유저');
+  const title = `공지-${Date.now()}`;
+  const content = '알림 발송 내역 테스트';
+
+  const sendRes = await api.post('/api/admin/notifications', {
+    headers: { Authorization: `Bearer ${login.accessToken}` },
+    data: {
+      targetType: 'USER',
+      userId: user.id,
+      title,
+      content,
+      type: 'SYSTEM',
+    },
+  });
+  expect(sendRes.status()).toBe(201);
+
+  const historyRes = await api.get('/api/admin/notifications/history', {
+    headers: { Authorization: `Bearer ${login.accessToken}` },
+    params: { limit: 20, offset: 0 },
+  });
+  expect(historyRes.status()).toBe(200);
+  const history = await historyRes.json();
+  const item = history.items.find(
+    (row: { title: string; content: string }) =>
+      row.title === title && row.content === content,
+  );
+  expect(item).toBeTruthy();
+  expect(item.targetCount).toBeGreaterThanOrEqual(1);
+
+  await cleanupNotificationsByTitle(user.id, title);
   await cleanupUser(user.id);
   await cleanupAdminUser(admin.id);
 });
