@@ -13,7 +13,18 @@ export class UpdateNoticeDto {
   @IsString()
   content?: string;
 
-  @ApiPropertyOptional({ description: '공지 이미지 URL' })
+  @ApiPropertyOptional({
+    description: '공지 이미지 파일 (multipart/form-data)',
+    type: 'string',
+    format: 'binary',
+  })
+  @IsOptional()
+  image?: any;
+
+  @ApiPropertyOptional({
+    description: '공지 이미지 URL (직접 업로드 미사용 시)',
+    deprecated: true,
+  })
   @IsOptional()
   @IsString()
   imageUrl?: string;

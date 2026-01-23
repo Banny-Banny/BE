@@ -118,7 +118,12 @@ export class NoticesService {
     };
   }
 
-  async updateNotice(noticeId: string, dto: UpdateNoticeDto) {
+  async updateNotice(
+    adminId: string,
+    noticeId: string,
+    dto: UpdateNoticeDto,
+    file?: MulterFile,
+  ) {
     const notice = await this.noticeRepository.findOne({
       where: { id: noticeId },
     });
@@ -133,6 +138,14 @@ export class NoticesService {
     if (dto.imageUrl !== undefined) updates.imageUrl = dto.imageUrl;
     if (dto.isPinned !== undefined) updates.isPinned = dto.isPinned;
     if (dto.isVisible !== undefined) updates.isVisible = dto.isVisible;
+
+    if (file) {
+      const uploaded = await this.mediaService.uploadPublicImageFile(
+        adminId,
+        file,
+      );
+      updates.imageUrl = uploaded.url;
+    }
 
     if (!Object.keys(updates).length) {
       throw new BadRequestException('수정할 데이터가 없습니다.');

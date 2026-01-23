@@ -53,9 +53,24 @@ export class AdminNoticesController {
   }
 
   @Patch(':id')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 최대 5MB
+      },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '공지사항 수정' })
-  update(@Param('id') noticeId: string, @Body() dto: UpdateNoticeDto) {
-    return this.noticesService.updateNotice(noticeId, dto);
+  update(
+    @CurrentAdmin() admin: AdminUser,
+    @Param('id') noticeId: string,
+    @Body() dto: UpdateNoticeDto,
+    @UploadedFile() file?: MulterFile,
+  ) {
+    return this.noticesService.updateNotice(admin.id, noticeId, dto, file);
   }
 
   @Delete(':id')

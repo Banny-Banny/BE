@@ -13,12 +13,16 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { MediaType } from '../../../common/enums';
 import { ProductType } from '../../../entities/product.entity';
 
 export class AdminProductCreateDto {
-  @ApiProperty({ description: '상품명', maxLength: 50, example: '100년 타임캡슐' })
+  @ApiProperty({
+    description: '상품명',
+    maxLength: 50,
+    example: '100년 타임캡슐',
+  })
   @IsString()
   @MaxLength(50)
   name: string;
@@ -55,6 +59,9 @@ export class AdminProductCreateDto {
 
   @ApiPropertyOptional({ description: '판매/노출 상태', example: true })
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
   @IsBoolean()
   isActive?: boolean;
 

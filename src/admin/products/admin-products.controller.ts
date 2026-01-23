@@ -8,8 +8,15 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { AdminJwtAuthGuard } from '../auth/guards/admin-jwt-auth.guard';
 import { AdminProductsService } from './admin-products.service';
 import { AdminProductCreateDto } from './dto/admin-product-create.dto';
@@ -24,6 +31,8 @@ export class AdminProductsController {
   constructor(private readonly adminProductsService: AdminProductsService) {}
 
   @Post()
+  @UseInterceptors(AnyFilesInterceptor())
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '상품 등록' })
   createProduct(@Body() dto: AdminProductCreateDto) {
     return this.adminProductsService.createProduct(dto);
@@ -42,6 +51,8 @@ export class AdminProductsController {
   }
 
   @Patch(':id')
+  @UseInterceptors(AnyFilesInterceptor())
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '상품 정보 수정' })
   updateProduct(
     @Param('id') productId: string,

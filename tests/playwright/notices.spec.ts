@@ -167,12 +167,19 @@ test('PATCH /api/admin/notices/:id 200: 공지사항 수정', async () => {
     isVisible: true,
   });
 
+  const imageBuffer = Buffer.from('fake-notice-image-update');
+
   const res = await api.patch(`/api/admin/notices/${noticeId}`, {
     headers: { Authorization: `Bearer ${login.accessToken}` },
-    data: {
+    multipart: {
       title: '수정 후',
-      isPinned: true,
-      isVisible: false,
+      isPinned: 'true',
+      isVisible: 'false',
+      image: {
+        name: 'notice-update.png',
+        mimeType: 'image/png',
+        buffer: imageBuffer,
+      },
     },
   });
 
@@ -181,6 +188,8 @@ test('PATCH /api/admin/notices/:id 200: 공지사항 수정', async () => {
   expect(body.data.title).toBe('수정 후');
   expect(body.data.isPinned).toBe(true);
   expect(body.data.isVisible).toBe(false);
+  expect(body.data.imageUrl).toBeDefined();
+  expect(body.data.imageUrl).toContain('/media/');
 
   const db = await client.query(
     'SELECT title, is_pinned, is_visible FROM notices WHERE id = $1',

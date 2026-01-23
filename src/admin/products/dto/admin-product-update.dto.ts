@@ -13,7 +13,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { MediaType } from '../../../common/enums';
 import { ProductType } from '../../../entities/product.entity';
 
@@ -48,6 +48,9 @@ export class AdminProductUpdateDto {
 
   @ApiPropertyOptional({ description: '판매/노출 상태' })
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
   @IsBoolean()
   isActive?: boolean;
 
