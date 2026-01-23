@@ -26,6 +26,11 @@ export class AdminPaymentLogsQueryDto {
   @IsString()
   userId?: string;
 
+  @ApiPropertyOptional({ description: '유저 닉네임 또는 이메일' })
+  @IsOptional()
+  @IsString()
+  userSearch?: string;
+
   @ApiPropertyOptional({ example: '2026-01-01' })
   @IsOptional()
   @IsDateString()

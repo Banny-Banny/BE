@@ -446,6 +446,29 @@ export class AdminDashboardService {
       qb.andWhere('order.userId = :userId', { userId: query.userId });
     }
 
+    const userSearch = query.userSearch?.trim();
+    if (userSearch) {
+      const user = await this.userRepository.findOne({
+        where: [{ nickname: userSearch }, { email: userSearch }],
+      });
+
+      if (!user) {
+        return {
+          success: true,
+          data: {
+            items: [],
+            total: 0,
+            limit: query.limit,
+            offset: query.offset,
+          },
+        };
+      }
+
+      qb.andWhere('order.userId = :searchedUserId', {
+        searchedUserId: user.id,
+      });
+    }
+
     if (query.startDate) {
       const start = new Date(query.startDate);
       start.setHours(0, 0, 0, 0);
