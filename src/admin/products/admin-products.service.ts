@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Product, ProductType } from '../../entities';
+import { MediaService } from '../../media/media.service';
+import type { MulterFile } from '../../media/types/multer-file.interface';
 import { AdminProductCreateDto } from './dto/admin-product-create.dto';
 import { AdminProductListQueryDto } from './dto/admin-product-list-query.dto';
 import { AdminProductUpdateDto } from './dto/admin-product-update.dto';
@@ -15,20 +17,30 @@ export class AdminProductsService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    private readonly mediaService: MediaService,
   ) {}
 
-  async createProduct(dto: AdminProductCreateDto) {
+  async createProduct(dto: AdminProductCreateDto, file?: MulterFile) {
     const productType = dto.productType ?? ProductType.TIME_CAPSULE;
     const maxMediaCount =
       dto.maxMediaCount !== undefined ? dto.maxMediaCount : null;
 
     this.validateEasterEggConstraints(productType, maxMediaCount);
 
+    let thumbnailUrl = dto.thumbnailUrl ?? null;
+    if (file) {
+      const uploaded = await this.mediaService.uploadPublicImageFile(
+        'admin',
+        file,
+      );
+      thumbnailUrl = uploaded.object_key;
+    }
+
     const product = this.productRepository.create({
       name: dto.name,
       price: dto.price,
       description: dto.description ?? null,
-      thumbnailUrl: dto.thumbnailUrl ?? null,
+      thumbnailUrl,
       categoryId: dto.categoryId ?? null,
       isActive: dto.isActive ?? true,
       productType,
@@ -39,7 +51,7 @@ export class AdminProductsService {
     const saved = await this.productRepository.save(product);
     return {
       success: true,
-      data: this.buildProductResponse(saved),
+      data: await this.buildProductResponse(saved),
     };
   }
 
@@ -76,10 +88,14 @@ export class AdminProductsService {
       .take(query.limit)
       .getManyAndCount();
 
+    const resolvedItems = await Promise.all(
+      items.map((product) => this.buildProductResponse(product)),
+    );
+
     return {
       success: true,
       data: {
-        items: items.map((product) => this.buildProductResponse(product)),
+        items: resolvedItems,
         total,
         limit: query.limit,
         offset: query.offset,
@@ -99,11 +115,15 @@ export class AdminProductsService {
 
     return {
       success: true,
-      data: this.buildProductResponse(product),
+      data: await this.buildProductResponse(product),
     };
   }
 
-  async updateProduct(productId: string, dto: AdminProductUpdateDto) {
+  async updateProduct(
+    productId: string,
+    dto: AdminProductUpdateDto,
+    file?: MulterFile,
+  ) {
     const product = await this.productRepository.findOne({
       where: { id: productId },
       withDeleted: true,
@@ -125,6 +145,14 @@ export class AdminProductsService {
     if (dto.maxMediaCount !== undefined)
       updates.maxMediaCount = dto.maxMediaCount;
 
+    if (file) {
+      const uploaded = await this.mediaService.uploadPublicImageFile(
+        'admin',
+        file,
+      );
+      updates.thumbnailUrl = uploaded.object_key;
+    }
+
     if (!Object.keys(updates).length) {
       throw new BadRequestException('수정할 데이터가 없습니다.');
     }
@@ -142,7 +170,7 @@ export class AdminProductsService {
 
     return {
       success: true,
-      data: this.buildProductResponse(saved),
+      data: await this.buildProductResponse(saved),
     };
   }
 
@@ -188,13 +216,13 @@ export class AdminProductsService {
     }
   }
 
-  private buildProductResponse(product: Product) {
+  private async buildProductResponse(product: Product) {
     return {
       id: product.id,
       name: product.name,
       price: product.price,
       description: product.description ?? null,
-      thumbnailUrl: product.thumbnailUrl ?? null,
+      thumbnailUrl: await this.resolveProductThumbnailUrl(product.thumbnailUrl),
       categoryId: product.categoryId ?? null,
       productType: product.productType,
       mediaTypes: product.mediaTypes ?? null,
@@ -204,5 +232,24 @@ export class AdminProductsService {
       updatedAt: product.updatedAt ?? null,
       deletedAt: product.deletedAt ?? null,
     };
+  }
+
+  private async resolveProductThumbnailUrl(
+    thumbnailUrl: string | null,
+  ): Promise<string | null> {
+    if (!thumbnailUrl) return null;
+
+    if (thumbnailUrl.startsWith('http://') || thumbnailUrl.startsWith('https://')) {
+      const marker = 'amazonaws.com/';
+      const index = thumbnailUrl.indexOf(marker);
+      if (index === -1) {
+        return thumbnailUrl;
+      }
+      const objectKey = thumbnailUrl.slice(index + marker.length);
+      if (!objectKey) return thumbnailUrl;
+      return await this.mediaService.getSignedUrlByObjectKey(objectKey);
+    }
+
+    return await this.mediaService.getSignedUrlByObjectKey(thumbnailUrl);
   }
 }

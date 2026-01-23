@@ -42,8 +42,17 @@ export class AdminProductCreateDto {
   description?: string | null;
 
   @ApiPropertyOptional({
-    description: '썸네일 URL',
+    description: '썸네일 이미지 파일 (multipart/form-data)',
+    type: 'string',
+    format: 'binary',
+  })
+  @IsOptional()
+  thumbnail?: any;
+
+  @ApiPropertyOptional({
+    description: '썸네일 URL (직접 업로드 미사용 시)',
     example: 'https://cdn.example.com/products/capsule.png',
+    deprecated: true,
   })
   @IsOptional()
   @IsUrl()

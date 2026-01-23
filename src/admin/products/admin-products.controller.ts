@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -16,12 +17,14 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AdminJwtAuthGuard } from '../auth/guards/admin-jwt-auth.guard';
 import { AdminProductsService } from './admin-products.service';
 import { AdminProductCreateDto } from './dto/admin-product-create.dto';
 import { AdminProductListQueryDto } from './dto/admin-product-list-query.dto';
 import { AdminProductUpdateDto } from './dto/admin-product-update.dto';
+import type { MulterFile } from '../../media/types/multer-file.interface';
 
 @ApiTags('Admin - Products')
 @ApiBearerAuth('access-token')
@@ -31,11 +34,22 @@ export class AdminProductsController {
   constructor(private readonly adminProductsService: AdminProductsService) {}
 
   @Post()
-  @UseInterceptors(AnyFilesInterceptor())
+  @UseInterceptors(
+    FileInterceptor('thumbnail', {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 최대 5MB
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '상품 등록' })
-  createProduct(@Body() dto: AdminProductCreateDto) {
-    return this.adminProductsService.createProduct(dto);
+  createProduct(
+    @Body() dto: AdminProductCreateDto,
+    @UploadedFile() file?: MulterFile,
+  ) {
+    return this.adminProductsService.createProduct(dto, file);
   }
 
   @Get()
@@ -51,14 +65,23 @@ export class AdminProductsController {
   }
 
   @Patch(':id')
-  @UseInterceptors(AnyFilesInterceptor())
+  @UseInterceptors(
+    FileInterceptor('thumbnail', {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 최대 5MB
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '상품 정보 수정' })
   updateProduct(
     @Param('id') productId: string,
     @Body() dto: AdminProductUpdateDto,
+    @UploadedFile() file?: MulterFile,
   ) {
-    return this.adminProductsService.updateProduct(productId, dto);
+    return this.adminProductsService.updateProduct(productId, dto, file);
   }
 
   @Delete(':id')

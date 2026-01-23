@@ -27,6 +27,7 @@ import { AdminChatGateway } from './inquiries/admin-chat.gateway';
 import { UserChatGateway } from './inquiries/user-chat.gateway';
 import { AuthModule } from '../auth/auth.module';
 import { NoticesModule } from '../notices/notices.module';
+import { MediaModule } from '../media/media.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { CapsulesModule } from '../capsules/capsules.module';
 import { AdminNoticesController } from './notices/admin-notices.controller';
@@ -40,6 +41,7 @@ import { AdminAdminsService } from './admins/admin-admins.service';
     ConfigModule,
     AuthModule,
     NoticesModule,
+    MediaModule,
     PaymentsModule,
     CapsulesModule,
     PassportModule,

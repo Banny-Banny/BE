@@ -151,7 +151,11 @@ export class MediaService {
   async uploadPublicImageFile(ownerId: string, file: MulterFile) {
     this.validateMulterFile(file, MediaType.IMAGE);
 
-    const key = this.buildObjectKey(ownerId, MediaType.IMAGE, file.originalname);
+    const key = this.buildObjectKey(
+      ownerId,
+      MediaType.IMAGE,
+      file.originalname,
+    );
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
