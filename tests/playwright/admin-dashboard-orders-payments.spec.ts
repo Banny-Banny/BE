@@ -434,6 +434,60 @@ test('GET /api/admin/dashboard/payments/logs 200: 결제 실패 로그 조회', 
   }
 });
 
+test('GET /api/admin/dashboard/payments/logs 200: status 없이 전체 조회', async () => {
+  const admin = await createAdminUser(
+    'admin-payment-logs-all@test.com',
+    'test1234',
+  );
+  const user = await createUser('logs-all-user');
+  const productId = await createProduct();
+  const failedOrderId = await createOrder({
+    userId: user.id,
+    productId,
+    status: 'FAILED',
+  });
+  const paidOrderId = await createOrder({
+    userId: user.id,
+    productId,
+    status: 'PAID',
+  });
+  await createPayment({
+    orderId: failedOrderId,
+    status: 'FAILED',
+    failCode: 'CARD_DECLINED',
+    failMessage: '카드 승인 실패',
+    tossStatus: 'ABORTED',
+  });
+  await createPayment({
+    orderId: paidOrderId,
+    status: 'PAID',
+    receiptUrl: 'https://mock.toss/receipt',
+  });
+
+  try {
+    const login = await loginAdmin(admin.email, 'test1234');
+    const res = await api.get('/api/admin/dashboard/payments/logs', {
+      headers: { Authorization: `Bearer ${login.accessToken}` },
+      params: { userId: user.id },
+    });
+
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    const items = body.data.items as Array<{
+      status: string;
+      fail_code: string | null;
+    }>;
+    expect(items.some((item) => item.fail_code === 'CARD_DECLINED')).toBe(true);
+    expect(items.some((item) => item.status === 'PAID')).toBe(true);
+  } finally {
+    await cleanupOrders([failedOrderId, paidOrderId]);
+    await cleanupProducts([productId]);
+    await cleanupUser(user.id);
+    await cleanupAdminUser(admin.id);
+  }
+});
+
 test('POST /api/admin/dashboard/receipts/:orderId/issue 200: 영수증 재발급', async () => {
   const admin = await createAdminUser('admin-receipt@test.com', 'test1234');
   const user = await createUser('receipt-user');

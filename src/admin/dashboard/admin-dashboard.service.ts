@@ -440,14 +440,6 @@ export class AdminDashboardService {
 
     if (query.status && query.status !== 'ALL') {
       qb.andWhere('payment.status = :status', { status: query.status });
-    } else {
-      qb.andWhere(
-        '(payment.status = :failedStatus OR payment.fail_code IS NOT NULL OR payment.toss_status IN (:...tossStatuses))',
-        {
-          failedStatus: PaymentStatus.FAILED,
-          tossStatuses: ['ABORTED', 'EXPIRED'],
-        },
-      );
     }
 
     if (query.userId) {
