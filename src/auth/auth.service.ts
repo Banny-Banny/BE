@@ -9,7 +9,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { promisify } from 'util';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
@@ -121,6 +121,7 @@ export class AuthService {
 
     const duplicatePhone = await this.userRepository.findOne({
       where: { phoneNumber },
+      withDeleted: true,
     });
     if (duplicatePhone) {
       throw new ConflictException('이미 사용 중인 전화번호입니다.');
@@ -147,7 +148,14 @@ export class AuthService {
     user.isActive = true;
     user.tokenVersion = 0;
 
-    await this.userRepository.save(user);
+    try {
+      await this.userRepository.save(user);
+    } catch (error: unknown) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException('이미 사용 중인 전화번호입니다.');
+      }
+      throw error;
+    }
 
     return this.buildTokenResponse(user, true);
   }
@@ -261,6 +269,15 @@ export class AuthService {
     } catch {
       return false;
     }
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+    const driverError = (error as { driverError?: { code?: string } })
+      .driverError;
+    return driverError?.code === '23505';
   }
 
   /**
